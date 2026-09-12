@@ -81,44 +81,57 @@ function FrequencyTable({ routes, onRowClick }: Props) {
     return <p className="text-sm text-fg-subtle py-4">No frequency data yet.</p>;
   }
 
-  const thClass = "px-3 py-2 cursor-pointer select-none whitespace-nowrap hover:text-fg";
+  const thClass =
+    "px-2 py-1.5 cursor-pointer select-none whitespace-nowrap hover:text-fg sm:px-3 sm:py-2";
+  const tdClass = "px-2 py-1.5 sm:px-3 sm:py-2";
 
   return (
     <div className="space-y-2">
+      {/* Denser padding/text on mobile — same trade as WorstStopsTable: shrink
+          the chrome so more columns fit before handing off to horizontal scroll. */}
       <div className="overflow-x-auto rounded border border-line">
-        <table className="min-w-full text-sm text-fg-muted">
-          <thead className="bg-raised text-xs uppercase text-fg-subtle">
+        <table className="min-w-full text-xs text-fg-muted sm:text-sm">
+          <thead className="bg-raised text-[10px] uppercase text-fg-subtle sm:text-xs">
             <tr>
               <th
                 className={`${thClass} text-left`}
                 onClick={() => handleSort("route_short_name")}
               >
-                Route
+                <span className="sm:hidden">Rt.</span>
+                <span className="hidden sm:inline">Route</span>
                 <SortIcon active={sortKey === "route_short_name"} dir={sortDir} />
               </th>
               <th
                 className={`${thClass} text-right`}
                 onClick={() => handleSort("vehicle_count")}
               >
-                Vehicles
+                <span className="sm:hidden">Veh.</span>
+                <span className="hidden sm:inline">Vehicles</span>
                 <SortIcon active={sortKey === "vehicle_count"} dir={sortDir} />
               </th>
               <th
                 className={`${thClass} text-right`}
                 onClick={() => handleSort("avg_headway_minutes")}
               >
-                Avg headway
-                <span className="ml-1 font-normal normal-case opacity-50">(est.)</span>
+                <span className="sm:hidden">Avg</span>
+                <span className="hidden sm:inline">
+                  Avg headway
+                  <span className="ml-1 font-normal normal-case opacity-50">(est.)</span>
+                </span>
                 <SortIcon active={sortKey === "avg_headway_minutes"} dir={sortDir} />
               </th>
               <th
                 className={`${thClass} text-right`}
                 onClick={() => handleSort("min_headway_minutes")}
               >
-                Range (30 min)
+                <span className="sm:hidden">Range</span>
+                <span className="hidden sm:inline">Range (30 min)</span>
                 <SortIcon active={sortKey === "min_headway_minutes"} dir={sortDir} />
               </th>
-              <th className="px-3 py-2 text-center">Frequency</th>
+              <th className={`${thClass} text-center`}>
+                <span className="sm:hidden">Freq.</span>
+                <span className="hidden sm:inline">Frequency</span>
+              </th>
               <th className="w-6"></th>
             </tr>
           </thead>
@@ -129,19 +142,19 @@ function FrequencyTable({ routes, onRowClick }: Props) {
                 className={`group hover:bg-raised ${onRowClick ? "cursor-pointer" : ""}`}
                 onClick={() => onRowClick?.(r.route_id)}
               >
-                <td className="px-3 py-2 font-bold text-fg">{r.route_short_name}</td>
-                <td className="px-3 py-2 text-right">{r.vehicle_count}</td>
-                <td className="px-3 py-2 text-right">
+                <td className={`${tdClass} font-bold text-fg`}>{r.route_short_name}</td>
+                <td className={`${tdClass} text-right`}>{r.vehicle_count}</td>
+                <td className={`${tdClass} text-right`}>
                   {r.avg_headway_minutes > 0 ? `${r.avg_headway_minutes} min` : "—"}
                 </td>
-                <td className="px-3 py-2 text-right text-fg-subtle">
+                <td className={`${tdClass} text-right text-fg-subtle`}>
                   {r.min_headway_minutes > 0 && r.min_headway_minutes !== r.max_headway_minutes
                     ? `${r.min_headway_minutes}–${r.max_headway_minutes} min`
                     : r.avg_headway_minutes > 0
                       ? `~${r.avg_headway_minutes} min`
                       : "—"}
                 </td>
-                <td className="px-3 py-2 text-center">
+                <td className={`${tdClass} text-center`}>
                   <FrequencyBadge minutes={r.avg_headway_minutes} mode={resolvedTheme} />
                 </td>
                 <td className="pr-3 text-fg-subtle group-hover:text-fg-muted transition-colors select-none">›</td>

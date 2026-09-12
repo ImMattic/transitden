@@ -25,5 +25,6 @@ async def get_limits() -> dict:
         "vehicles_max_span_hours": _settings.vehicles_max_span_hours,
         "historical_max_span_days": _settings.historical_max_span_days,
         "export_max_span_days": _settings.export_max_span_days,
+        "dashboard_max_span_days": _settings.dashboard_max_span_days,
         "data_retention_days": _settings.data_retention_days,
     }

@@ -31,7 +31,6 @@ import {
 } from "@/lib/tripFilters";
 import {
   DEFAULT_RANGE_LIMITS,
-  describeLimits,
   fromLocalInput,
   isoToLocalInput,
   localInputToIso,
@@ -404,8 +403,6 @@ function TripsContent() {
           </div>
         </div>
 
-        <p className="mt-3 text-xs text-fg-subtle">{describeLimits(limits)}</p>
-
         <TripFilterMenu
           open={menuOpen}
           value={draft}
@@ -498,22 +495,46 @@ function TripsContent() {
                   belt and suspenders against a few stray px. The table's min-width
                   is the sum of the fixed columns plus a floor for From → To, so
                   squeezing below that hands off to the wrapper's horizontal scroll
-                  instead of crushing every column to fit. */}
-              <table className="w-full min-w-[976px] table-fixed border-collapse text-sm text-fg-muted">
-                <thead className="bg-raised text-xs uppercase text-fg-subtle">
+                  instead of crushing every column to fit. Columns and padding both
+                  shrink a step on mobile (same floor for From → To either way) so
+                  the handoff to scroll happens later, matching the compact tables
+                  elsewhere in the app. */}
+              <table className="w-full min-w-[832px] table-fixed border-collapse text-xs text-fg-muted sm:min-w-[976px] sm:text-sm">
+                <thead className="bg-raised text-[10px] uppercase text-fg-subtle sm:text-xs">
                   <tr>
-                    <th className="w-10 whitespace-nowrap px-3 py-2 text-left">
+                    <th className="w-8 whitespace-nowrap px-2 py-1.5 text-left sm:w-10 sm:px-3 sm:py-2">
                       <span className="sr-only">Status</span>
                     </th>
-                    <th className="w-16 whitespace-nowrap px-3 py-2 text-left">Route</th>
-                    <th className="w-20 whitespace-nowrap px-3 py-2 text-left">Vehicle</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-left">From → To</th>
-                    <th className="w-24 whitespace-nowrap px-3 py-2 text-left">Start Time</th>
-                    <th className="w-24 whitespace-nowrap px-3 py-2 text-left">End Time</th>
-                    <th className="w-20 whitespace-nowrap px-3 py-2 text-right">Duration</th>
-                    <th className="w-[136px] whitespace-nowrap px-3 py-2 text-left">Occupancy</th>
-                    <th className="w-[88px] whitespace-nowrap px-3 py-2 text-right">Avg Delay</th>
-                    <th className="w-20 whitespace-nowrap px-3 py-2 text-right">On-Time</th>
+                    <th className="w-14 whitespace-nowrap px-2 py-1.5 text-left sm:w-16 sm:px-3 sm:py-2">
+                      Route
+                    </th>
+                    <th className="w-16 whitespace-nowrap px-2 py-1.5 text-left sm:w-20 sm:px-3 sm:py-2">
+                      Vehicle
+                    </th>
+                    <th className="whitespace-nowrap px-2 py-1.5 text-left sm:px-3 sm:py-2">From → To</th>
+                    <th className="w-20 whitespace-nowrap px-2 py-1.5 text-left sm:w-24 sm:px-3 sm:py-2">
+                      <span className="sm:hidden">Start</span>
+                      <span className="hidden sm:inline">Start Time</span>
+                    </th>
+                    <th className="w-20 whitespace-nowrap px-2 py-1.5 text-left sm:w-24 sm:px-3 sm:py-2">
+                      <span className="sm:hidden">End</span>
+                      <span className="hidden sm:inline">End Time</span>
+                    </th>
+                    <th className="w-16 whitespace-nowrap px-2 py-1.5 text-right sm:w-20 sm:px-3 sm:py-2">
+                      <span className="sm:hidden">Dur.</span>
+                      <span className="hidden sm:inline">Duration</span>
+                    </th>
+                    <th className="w-[104px] whitespace-nowrap px-2 py-1.5 text-left sm:w-[136px] sm:px-3 sm:py-2">
+                      <span className="sm:hidden">Occ.</span>
+                      <span className="hidden sm:inline">Occupancy</span>
+                    </th>
+                    <th className="w-[72px] whitespace-nowrap px-2 py-1.5 text-right sm:w-[88px] sm:px-3 sm:py-2">
+                      <span className="sm:hidden">Delay</span>
+                      <span className="hidden sm:inline">Avg Delay</span>
+                    </th>
+                    <th className="w-16 whitespace-nowrap px-2 py-1.5 text-right sm:w-20 sm:px-3 sm:py-2">
+                      On-Time
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
@@ -523,7 +544,7 @@ function TripsContent() {
                       className="cursor-pointer hover:bg-accent/10"
                       onClick={() => handleVehicleClick(v)}
                     >
-                      <td className="w-10 px-3 py-2">
+                      <td className="w-8 px-2 py-1.5 sm:w-10 sm:px-3 sm:py-2">
                         {/* The API decided the status the filter matched on; the
                             live feed is fresher, so a trip that is still running
                             keeps its blinking dot between refetches. */}
@@ -541,13 +562,13 @@ function TripsContent() {
                           )}
                         />
                       </td>
-                      <td className="w-16 whitespace-nowrap px-3 py-2">
+                      <td className="w-14 whitespace-nowrap px-2 py-1.5 sm:w-16 sm:px-3 sm:py-2">
                         <RouteBadge shortName={v.route_short_name} color={v.route_color} />
                       </td>
-                      <td className="w-20 whitespace-nowrap px-3 py-2 font-semibold">
+                      <td className="w-16 whitespace-nowrap px-2 py-1.5 font-semibold sm:w-20 sm:px-3 sm:py-2">
                         {v.vehicle_label ? `#${v.vehicle_label}` : "—"}
                       </td>
-                      <td className="overflow-hidden px-3 py-2 text-fg-muted">
+                      <td className="overflow-hidden px-2 py-1.5 text-fg-muted sm:px-3 sm:py-2">
                         <span className="block truncate" title={`${v.start_stop_name ?? "—"} → ${v.end_stop_name ?? "—"}`}>
                           {v.start_stop_name ?? "—"}
                           <span className="px-1 text-fg-subtle">→</span>
@@ -557,35 +578,35 @@ function TripsContent() {
                       {/* whitespace-nowrap: the locale time string can wrap its AM/PM
                           onto its own line at some column widths, which grows the row
                           to two lines and jitters the table height between pages. */}
-                      <td className="w-24 whitespace-nowrap px-3 py-2 text-fg-muted">
+                      <td className="w-20 whitespace-nowrap px-2 py-1.5 text-fg-muted sm:w-24 sm:px-3 sm:py-2">
                         {new Date(v.start_time).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                       </td>
-                      <td className="w-24 whitespace-nowrap px-3 py-2 text-fg-muted">
+                      <td className="w-20 whitespace-nowrap px-2 py-1.5 text-fg-muted sm:w-24 sm:px-3 sm:py-2">
                         {new Date(v.end_time).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                       </td>
-                      <td className="w-20 whitespace-nowrap px-3 py-2 text-right font-mono text-fg-muted">
+                      <td className="w-16 whitespace-nowrap px-2 py-1.5 text-right font-mono text-fg-muted sm:w-20 sm:px-3 sm:py-2">
                         {formatDuration(v.duration_minutes)}
                       </td>
-                      <td className="w-[136px] whitespace-nowrap px-3 py-2 text-fg-muted">
+                      <td className="w-[104px] whitespace-nowrap px-2 py-1.5 text-fg-muted sm:w-[136px] sm:px-3 sm:py-2">
                         {v.last_occupancy_status
                           ? occupancyLabel(v.last_occupancy_status)
                           : "—"}
                       </td>
                       <td
                         className={cn(
-                          "w-[88px] whitespace-nowrap px-3 py-2 text-right font-mono",
+                          "w-[72px] whitespace-nowrap px-2 py-1.5 text-right font-mono sm:w-[88px] sm:px-3 sm:py-2",
                           avgDelayColor(v.avg_delay_seconds),
                         )}
                       >
                         {formatDelayMin(v.avg_delay_seconds)}
                       </td>
-                      <td className="w-20 whitespace-nowrap px-3 py-2 text-right font-mono text-fg-muted">
+                      <td className="w-16 whitespace-nowrap px-2 py-1.5 text-right font-mono text-fg-muted sm:w-20 sm:px-3 sm:py-2">
                         {v.on_time_pct !== null ? `${Math.round(v.on_time_pct)}%` : "—"}
                       </td>
                     </tr>
@@ -604,7 +625,10 @@ function TripsContent() {
                   <span>
                     {start}–{end} of {totalCount} trips
                   </span>
-                  <div className="flex items-center gap-3">
+                  {/* Full width and right-justified on mobile — with flex-wrap,
+                      a lone wrapped item otherwise sits at the row's start
+                      rather than lining up under the trip count on the right. */}
+                  <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-start">
                     <div className="flex items-center gap-1.5">
                       {/* Smaller on mobile — "Rows per page" is the thing that was
                           getting squeezed against the page buttons in the same row. */}
@@ -632,7 +656,10 @@ function TripsContent() {
                         <ChevronLeftIcon />
                       </button>
                       <span className="flex items-center gap-1 px-1 text-xs">
-                        Page
+                        {/* Dropped on mobile — the row was already tight with the
+                            input and both arrow buttons, and "of Y" carries the
+                            total on its own. */}
+                        <span className="hidden sm:inline">Page</span>
                         <input
                           type="text"
                           inputMode="numeric"
@@ -648,11 +675,7 @@ function TripsContent() {
                           aria-label={`Go to page, ${totalPages} total pages`}
                           className="w-9 rounded border border-line bg-card px-1 py-0.5 text-center text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent"
                         />
-                        {/* Dropped on mobile — the row was already tight with the
-                            input and both arrow buttons, and the total is one tap
-                            away (the input itself, or either arrow button greying
-                            out) without needing to spell it out here. */}
-                        <span className="hidden sm:inline">of {totalPages}</span>
+                        <span>of {totalPages}</span>
                       </span>
                       <button
                         onClick={() => setPage((p) => Math.min(totalPages, p + 1))}

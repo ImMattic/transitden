@@ -18,6 +18,7 @@ async def test_limits_reports_every_span_cap(client):
         "vehicles_max_span_hours": settings.vehicles_max_span_hours,
         "historical_max_span_days": settings.historical_max_span_days,
         "export_max_span_days": settings.export_max_span_days,
+        "dashboard_max_span_days": settings.dashboard_max_span_days,
         "data_retention_days": settings.data_retention_days,
     }
 

@@ -7,6 +7,7 @@ import {
   RANGE_PRESETS,
   calendarDays,
   clampLocal,
+  describeLimits,
   endOfDay,
   fromLocalInput,
   isDaySelectable,
@@ -42,12 +43,15 @@ const TRIGGER_DATE = new Intl.DateTimeFormat(undefined, {
   month: "short",
   day: "numeric",
 });
-const TRIGGER_TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+// Military time throughout — the trigger label and the hour/minute selects.
+const TRIGGER_TIME = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
 
 function hourLabel(h: number): string {
-  const suffix = h < 12 ? "AM" : "PM";
-  const twelve = h % 12 === 0 ? 12 : h % 12;
-  return `${twelve} ${suffix}`;
+  return String(h).padStart(2, "0");
 }
 
 type RangeRole = "start" | "end" | "single" | "in-range" | "none";
@@ -414,15 +418,13 @@ export default function DateRangePicker({ start, end, onChange, limits, now, id 
                   // on the same button.
                   role === "none" && "rounded",
                   !selectable && "cursor-not-allowed text-fg-subtle/35 line-through",
-                  // Three shades for role "none": full-strength for a plain
-                  // in-month day, medium ("muted") for a day that's real and
-                  // clickable but too far forward to complete this pick —
-                  // deliberately a different grey than the lightest shade
-                  // below, which is reserved for padding days from
-                  // neighbouring months, so the two never look the same.
-                  selectable && role === "none" && tooFarForward && "text-fg-muted hover:bg-raised",
+                  // Two shades for role "none": full-strength for a plain
+                  // in-month day, and the same "muted" grey for both a
+                  // neighbouring-month padding day and a day that's real and
+                  // clickable but too far forward to complete this pick — one
+                  // grey standing for "not a normal pick" rather than two.
+                  selectable && role === "none" && (tooFarForward || !inMonth) && "text-fg-muted hover:bg-raised",
                   selectable && role === "none" && !tooFarForward && inMonth && "text-fg hover:bg-raised",
-                  selectable && role === "none" && !tooFarForward && !inMonth && "text-fg-subtle hover:bg-raised",
                   // The bar: a flat, edge-to-edge tint between the two caps —
                   // continuous because the grid above has no column gap to
                   // break it up.
@@ -509,18 +511,21 @@ export default function DateRangePicker({ start, end, onChange, limits, now, id 
   );
 
   const header = (
-    <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-      <span className="text-sm font-bold text-fg">Date &amp; time range</span>
-      <button
-        type="button"
-        onClick={() => setOpen(false)}
-        aria-label="Close date range picker"
-        className="press -mr-1 rounded-full p-1 text-fg-subtle transition-colors hover:bg-raised hover:text-fg"
-      >
-        <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-        </svg>
-      </button>
+    <div className="border-b border-line px-4 py-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-bold text-fg">Date &amp; time range</span>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          aria-label="Close date range picker"
+          className="press -mr-1 rounded-full p-1 text-fg-subtle transition-colors hover:bg-raised hover:text-fg"
+        >
+          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+          </svg>
+        </button>
+      </div>
+      <p className="mt-1 text-xs text-fg-subtle">{describeLimits(limits)}</p>
     </div>
   );
 
@@ -555,7 +560,11 @@ export default function DateRangePicker({ start, end, onChange, limits, now, id 
           title={triggerLabel}
           className={cn(
             fieldClass,
-            "flex w-64 items-center gap-2 text-left tabular-nums sm:w-[19rem]",
+            // Fit the whole "start – end" label rather than a fixed width that
+            // truncates it prematurely — grows with content, capped at the
+            // container's edge (where `truncate` on the label below still
+            // takes over as a last resort on a genuinely narrow screen).
+            "flex w-fit max-w-full items-center gap-2 text-left tabular-nums",
             open && "ring-2 ring-accent",
           )}
         >

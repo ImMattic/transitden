@@ -13,6 +13,8 @@ class MetricWithDelta(BaseModel):
 
 class OverviewResponse(BaseModel):
     period_days: int
+    range_start: str | None = None
+    range_end: str | None = None
     on_time_pct: MetricWithDelta
     avg_delay_seconds: MetricWithDelta
     delay_stddev_seconds: float
@@ -37,6 +39,8 @@ class TrendPoint(BaseModel):
 
 class TrendResponse(BaseModel):
     period_days: int
+    range_start: str | None = None
+    range_end: str | None = None
     granularity: str
     route_id: str | None = None
     points: list[TrendPoint]
@@ -54,6 +58,8 @@ class HeatmapCell(BaseModel):
 
 class HeatmapResponse(BaseModel):
     period_days: int
+    range_start: str | None = None
+    range_end: str | None = None
     route_id: str | None = None
     cells: list[HeatmapCell]
 
@@ -69,6 +75,8 @@ class DistributionBin(BaseModel):
 
 class DistributionResponse(BaseModel):
     period_days: int
+    range_start: str | None = None
+    range_end: str | None = None
     route_id: str | None = None
     total: int
     avg_delay_seconds: float
@@ -89,6 +97,8 @@ class WorstStop(BaseModel):
 
 class WorstStopsResponse(BaseModel):
     period_days: int
+    range_start: str | None = None
+    range_end: str | None = None
     route_id: str | None = None
     stops: list[WorstStop]
 
@@ -105,6 +115,8 @@ class ServiceDeliveryRoute(BaseModel):
 
 class ServiceDeliveryResponse(BaseModel):
     period_days: int
+    range_start: str | None = None
+    range_end: str | None = None
     observed_trips: int
     scheduled_trips: int
     delivered_pct: float
@@ -157,6 +169,8 @@ class DirectionInfo(BaseModel):
 
 class OccupancyResponse(BaseModel):
     period_days: int
+    range_start: str | None = None
+    range_end: str | None = None
     route_id: str | None = None
     direction: int | None = None
     reported: bool          # False when RTD populates no occupancy data
