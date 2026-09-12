@@ -1,10 +1,11 @@
 """Deep analytics endpoints powering the rebuilt Dashboard & Historical pages.
 
 All time-series/aggregate endpoints read the continuous aggregates created in
-migration 003 (trip_ontime_hourly, stop_delay_daily, occupancy_hourly,
-trip_activity_daily) so they stay fast over long windows.  Ridership reads the
-plain ridership_monthly table.  Route names are enriched from GTFS static via
-load_gtfs_static_data(), mirroring stats.py.
+migration 003 (trip_ontime_hourly, stop_delay_daily, trip_activity_daily) and
+migration 008 (occupancy_status_hourly) so they stay fast over long windows —
+up to dashboard_max_span_days (~a year), resolved via app.api.v1._date_range.
+Ridership reads the plain ridership_monthly table.  Route names are enriched
+from GTFS static via load_gtfs_static_data(), mirroring stats.py.
 
 Hour-of-day / day-of-week are reported in America/Denver local time so the
 heatmap and occupancy-by-hour charts read naturally to a Denver audience.
@@ -14,13 +15,14 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import ARRAY, String, bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.models.ridership import RidershipMonthly
 from app.schemas.analytics import (
@@ -46,6 +48,7 @@ from app.schemas.analytics import (
     WorstStop,
     WorstStopsResponse,
 )
+from app.api.v1._date_range import ResolvedRange, resolve_range
 from app.api.v1._route_filter import resolve_route_ids
 from app.services.gtfs_decoder import load_gtfs_static_data
 from app.services.gtfs_schedule import load_route_direction_info, load_schedule_summary
@@ -68,10 +71,6 @@ _DELAY_BINS = [
 
 def _route_name(routes_static: dict[str, dict[str, Any]], rid: str) -> str:
     return routes_static.get(rid, {}).get("route_short_name", rid) or rid
-
-
-def _cutoff(days: int) -> datetime:
-    return datetime.now(tz=timezone.utc) - timedelta(days=days)
 
 
 _DOW_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
@@ -165,40 +164,48 @@ async def overview(
     route_id: Annotated[str | None, Query()] = None,
     route_ids: Annotated[str | None, Query()] = None,
     modes: Annotated[str | None, Query()] = None,
-    days: Annotated[int, Query(ge=1, le=90)] = 7,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
 ) -> OverviewResponse:
     rids = resolve_route_ids(route_id, route_ids, modes)
-    now = datetime.now(tz=timezone.utc)
-    start = now - timedelta(days=days)
-    prev_start = start - timedelta(days=days)
+    settings = get_settings()
+    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=7)
+    span = rng.end_at - rng.start_at
+    prev_start_at = rng.start_at - span
 
-    cur = await _ontime_totals(db, start, now, rids)
-    prev = await _ontime_totals(db, prev_start, start, rids)
+    cur = await _ontime_totals(db, rng.start_at, rng.end_at, rids)
+    prev = await _ontime_totals(db, prev_start_at, rng.start_at, rids)
 
     observed = (await db.execute(
         text(_OBSERVED_TRIPS_SQL).bindparams(
             bindparam("start"), bindparam("end"),
             bindparam("route_ids", type_=ARRAY(String)),
         ),
-        {"start": start, "end": now, "route_ids": rids},
+        {"start": rng.start_at, "end": rng.end_at, "route_ids": rids},
     )).scalar() or 0
     observed_prev = (await db.execute(
         text(_OBSERVED_TRIPS_SQL).bindparams(
             bindparam("start"), bindparam("end"),
             bindparam("route_ids", type_=ARRAY(String)),
         ),
-        {"start": prev_start, "end": start, "route_ids": rids},
+        {"start": prev_start_at, "end": rng.start_at, "route_ids": rids},
     )).scalar() or 0
 
     routes_static, _ = load_gtfs_static_data()
     sched_route_ids = rids if rids else list(routes_static.keys())
 
-    def _sched(start_dt: datetime, end_dt: datetime) -> int:
-        day_counts = _count_daytypes(start_dt, end_dt)
+    def _sched(start_d: date, end_d: date) -> int:
+        day_counts = _count_daytypes(
+            datetime.combine(start_d, datetime.min.time()),
+            datetime.combine(end_d, datetime.min.time()),
+        )
         return sum(_scheduled_trips(rid, day_counts) for rid in sched_route_ids)
 
-    sched = _sched(start, now)
-    sched_prev = _sched(prev_start, start)
+    prev_end_date = rng.start - timedelta(days=1)
+    prev_start_date = prev_end_date - timedelta(days=rng.span_days - 1)
+
+    sched = _sched(rng.start, rng.end)
+    sched_prev = _sched(prev_start_date, prev_end_date)
     delivered = round(min(100.0, 100 * observed / sched), 1) if sched else 0.0
     delivered_prev = round(min(100.0, 100 * observed_prev / sched_prev), 1) if sched_prev else 0.0
 
@@ -206,7 +213,9 @@ async def overview(
     rship = await _latest_ridership(db, rids)
 
     return OverviewResponse(
-        period_days=days,
+        period_days=rng.span_days,
+        range_start=rng.start.isoformat(),
+        range_end=rng.end.isoformat(),
         on_time_pct=MetricWithDelta(value=_pct_on_time(cur), previous=_pct_on_time(prev)),
         avg_delay_seconds=MetricWithDelta(value=_avg_delay(cur), previous=_avg_delay(prev)),
         delay_stddev_seconds=_stddev(cur),
@@ -229,10 +238,13 @@ async def ontime_trend(
     route_id: Annotated[str | None, Query()] = None,
     route_ids: Annotated[str | None, Query()] = None,
     modes: Annotated[str | None, Query()] = None,
-    days: Annotated[int, Query(ge=1, le=90)] = 14,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
     granularity: Annotated[str, Query(pattern="^(hour|day)$")] = "day",
 ) -> TrendResponse:
     rids = resolve_route_ids(route_id, route_ids, modes)
+    settings = get_settings()
+    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=14)
     if granularity == "hour":
         t_expr = "bucket"
     else:
@@ -247,14 +259,16 @@ async def ontime_trend(
             sum(observations)::bigint                      AS observations,
             sum(delay_sum)::bigint                         AS delay_sum
         FROM trip_ontime_hourly
-        WHERE bucket >= :cutoff
+        WHERE bucket >= :start AND bucket < :end
           AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
         GROUP BY t
         ORDER BY t
     """
     rows = (await db.execute(
-        text(sql).bindparams(bindparam("cutoff"), bindparam("route_ids", type_=ARRAY(String))),
-        {"cutoff": _cutoff(days), "route_ids": rids},
+        text(sql).bindparams(
+            bindparam("start"), bindparam("end"), bindparam("route_ids", type_=ARRAY(String)),
+        ),
+        {"start": rng.start_at, "end": rng.end_at, "route_ids": rids},
     )).all()
 
     points: list[TrendPoint] = []
@@ -266,7 +280,12 @@ async def ontime_trend(
             avg_delay_seconds=round((dsum or 0) / obs, 1) if obs else 0.0,
             observations=int(obs or 0),
         ))
-    return TrendResponse(period_days=days, granularity=granularity, route_id=route_id, points=points)
+    return TrendResponse(
+        period_days=rng.span_days,
+        range_start=rng.start.isoformat(),
+        range_end=rng.end.isoformat(),
+        granularity=granularity, route_id=route_id, points=points,
+    )
 
 
 # ── Heatmap (hour × day-of-week, local time) ────────────────────────────────
@@ -277,9 +296,12 @@ async def ontime_heatmap(
     route_id: Annotated[str | None, Query()] = None,
     route_ids: Annotated[str | None, Query()] = None,
     modes: Annotated[str | None, Query()] = None,
-    days: Annotated[int, Query(ge=1, le=90)] = 30,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
 ) -> HeatmapResponse:
     rids = resolve_route_ids(route_id, route_ids, modes)
+    settings = get_settings()
+    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=30)
     sql = f"""
         SELECT
             EXTRACT(dow  FROM bucket AT TIME ZONE '{_TZ}')::int AS dow,
@@ -290,13 +312,15 @@ async def ontime_heatmap(
             sum(observations)::bigint                      AS observations,
             sum(delay_sum)::bigint                         AS delay_sum
         FROM trip_ontime_hourly
-        WHERE bucket >= :cutoff
+        WHERE bucket >= :start AND bucket < :end
           AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
         GROUP BY dow, hour
     """
     rows = (await db.execute(
-        text(sql).bindparams(bindparam("cutoff"), bindparam("route_ids", type_=ARRAY(String))),
-        {"cutoff": _cutoff(days), "route_ids": rids},
+        text(sql).bindparams(
+            bindparam("start"), bindparam("end"), bindparam("route_ids", type_=ARRAY(String)),
+        ),
+        {"start": rng.start_at, "end": rng.end_at, "route_ids": rids},
     )).all()
 
     cells = []
@@ -308,7 +332,12 @@ async def ontime_heatmap(
             avg_delay_seconds=round((dsum or 0) / obs, 1) if obs else 0.0,
             observations=int(obs or 0),
         ))
-    return HeatmapResponse(period_days=days, route_id=route_id, cells=cells)
+    return HeatmapResponse(
+        period_days=rng.span_days,
+        range_start=rng.start.isoformat(),
+        range_end=rng.end.isoformat(),
+        route_id=route_id, cells=cells,
+    )
 
 
 # ── Delay distribution ──────────────────────────────────────────────────────
@@ -319,9 +348,12 @@ async def delay_distribution(
     route_id: Annotated[str | None, Query()] = None,
     route_ids: Annotated[str | None, Query()] = None,
     modes: Annotated[str | None, Query()] = None,
-    days: Annotated[int, Query(ge=1, le=90)] = 7,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
 ) -> DistributionResponse:
     rids = resolve_route_ids(route_id, route_ids, modes)
+    settings = get_settings()
+    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=7)
     sql = """
         SELECT
             sum(very_early)::bigint    AS very_early,
@@ -334,12 +366,14 @@ async def delay_distribution(
             sum(delay_sum)::bigint     AS delay_sum,
             sum(delay_sumsq)::numeric  AS delay_sumsq
         FROM trip_ontime_hourly
-        WHERE bucket >= :cutoff
+        WHERE bucket >= :start AND bucket < :end
           AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
     """
     row = (await db.execute(
-        text(sql).bindparams(bindparam("cutoff"), bindparam("route_ids", type_=ARRAY(String))),
-        {"cutoff": _cutoff(days), "route_ids": rids},
+        text(sql).bindparams(
+            bindparam("start"), bindparam("end"), bindparam("route_ids", type_=ARRAY(String)),
+        ),
+        {"start": rng.start_at, "end": rng.end_at, "route_ids": rids},
     )).one()
     counts = {k: (row[i] or 0) for i, (k, _) in enumerate(_DELAY_BINS)}
     obs = row[6] or 0
@@ -358,7 +392,9 @@ async def delay_distribution(
         for key, label in _DELAY_BINS
     ]
     return DistributionResponse(
-        period_days=days, route_id=route_id, total=int(total),
+        period_days=rng.span_days,
+        range_start=rng.start.isoformat(), range_end=rng.end.isoformat(),
+        route_id=route_id, total=int(total),
         avg_delay_seconds=round(mean, 1), stddev_seconds=stddev, bins=bins,
     )
 
@@ -371,11 +407,14 @@ async def worst_stops(
     route_id: Annotated[str | None, Query()] = None,
     route_ids: Annotated[str | None, Query()] = None,
     modes: Annotated[str | None, Query()] = None,
-    days: Annotated[int, Query(ge=1, le=90)] = 14,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 15,
     min_observations: Annotated[int, Query(ge=1)] = 20,
 ) -> WorstStopsResponse:
     rids = resolve_route_ids(route_id, route_ids, modes)
+    settings = get_settings()
+    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=14)
     sql = """
         SELECT
             stop_id,
@@ -384,7 +423,7 @@ async def worst_stops(
             sum(observations)::bigint AS observations,
             sum(delay_sum)::bigint    AS delay_sum
         FROM stop_delay_daily
-        WHERE bucket >= :cutoff
+        WHERE bucket >= :start AND bucket < :end
           AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
         GROUP BY stop_id
         HAVING sum(observations) >= :min_obs
@@ -393,10 +432,10 @@ async def worst_stops(
     """
     rows = (await db.execute(
         text(sql).bindparams(
-            bindparam("cutoff"), bindparam("route_ids", type_=ARRAY(String)),
+            bindparam("start"), bindparam("end"), bindparam("route_ids", type_=ARRAY(String)),
             bindparam("min_obs"), bindparam("limit"),
         ),
-        {"cutoff": _cutoff(days), "route_ids": rids,
+        {"start": rng.start_at, "end": rng.end_at, "route_ids": rids,
          "min_obs": min_observations, "limit": limit},
     )).all()
 
@@ -412,7 +451,11 @@ async def worst_stops(
             on_time_pct=round(100 * (on_time or 0) / total, 1) if total else 0.0,
             avg_delay_seconds=round((dsum or 0) / total, 1) if total else 0.0,
         ))
-    return WorstStopsResponse(period_days=days, route_id=route_id, stops=stops)
+    return WorstStopsResponse(
+        period_days=rng.span_days,
+        range_start=rng.start.isoformat(), range_end=rng.end.isoformat(),
+        route_id=route_id, stops=stops,
+    )
 
 
 # ── Service delivery (operated vs scheduled) ────────────────────────────────
@@ -423,26 +466,32 @@ async def service_delivery(
     route_id: Annotated[str | None, Query()] = None,
     route_ids: Annotated[str | None, Query()] = None,
     modes: Annotated[str | None, Query()] = None,
-    days: Annotated[int, Query(ge=1, le=90)] = 7,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
 ) -> ServiceDeliveryResponse:
     rids = resolve_route_ids(route_id, route_ids, modes)
-    now = datetime.now(tz=timezone.utc)
-    start = now - timedelta(days=days)
+    settings = get_settings()
+    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=7)
 
     sql = """
         SELECT route_id, count(*)::bigint AS trips
         FROM trip_activity_daily
-        WHERE bucket >= :cutoff
+        WHERE bucket >= :start AND bucket < :end
           AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
         GROUP BY route_id
     """
     rows = (await db.execute(
-        text(sql).bindparams(bindparam("cutoff"), bindparam("route_ids", type_=ARRAY(String))),
-        {"cutoff": start, "route_ids": rids},
+        text(sql).bindparams(
+            bindparam("start"), bindparam("end"), bindparam("route_ids", type_=ARRAY(String)),
+        ),
+        {"start": rng.start_at, "end": rng.end_at, "route_ids": rids},
     )).all()
 
     routes_static, _ = load_gtfs_static_data()
-    day_counts = _count_daytypes(start, now)
+    day_counts = _count_daytypes(
+        datetime.combine(rng.start, datetime.min.time()),
+        datetime.combine(rng.end, datetime.min.time()),
+    )
 
     results: list[ServiceDeliveryRoute] = []
     total_observed = 0
@@ -460,7 +509,8 @@ async def service_delivery(
         ))
     results.sort(key=lambda r: r.delivered_pct)
     return ServiceDeliveryResponse(
-        period_days=days,
+        period_days=rng.span_days,
+        range_start=rng.start.isoformat(), range_end=rng.end.isoformat(),
         observed_trips=total_observed,
         scheduled_trips=total_scheduled,
         delivered_pct=round(min(100.0, 100 * total_observed / total_scheduled), 1) if total_scheduled else 0.0,
@@ -503,39 +553,45 @@ async def schedule_frequency(
 
 
 # ── Occupancy / crowding ────────────────────────────────────────────────────
+#
+# Reads occupancy_status_hourly (migration 008), a continuous aggregate keyed
+# by route_id/trip_id/hour with a count per raw GTFS-RT occupancy_status value.
+# Keeping trip_id in the cagg (mirroring trip_activity_daily's own precedent)
+# is what lets direction filtering keep working post-aggregation: direction
+# has no column of its own on vehicle_positions, it's only ever resolved from
+# GTFS-static trip_id lists (see _occ_trip_ids), so the cagg needs trip_id to
+# stay filterable by the same lists.
 
 _OCC_TOTALS_SQL = """
     SELECT
-        count(*) FILTER (WHERE occupancy_status = 'EMPTY')                        AS empty,
-        count(*) FILTER (WHERE occupancy_status = 'MANY_SEATS_AVAILABLE')         AS many_seats,
-        count(*) FILTER (WHERE occupancy_status = 'FEW_SEATS_AVAILABLE')          AS few_seats,
-        count(*) FILTER (WHERE occupancy_status = 'STANDING_ROOM_ONLY')           AS standing,
-        count(*) FILTER (WHERE occupancy_status = 'CRUSHED_STANDING_ROOM_ONLY')   AS crushed,
-        count(*) FILTER (WHERE occupancy_status = 'FULL')                         AS full,
-        count(*) FILTER (WHERE occupancy_status = 'NOT_ACCEPTING_PASSENGERS')     AS not_accepting,
-        count(*) FILTER (WHERE occupancy_status IS NULL
-                            OR occupancy_status = 'UNKNOWN')                      AS unknown,
-        count(*)                                                                   AS samples
-    FROM vehicle_positions
-    WHERE timestamp >= :cutoff
+        sum(empty)::bigint         AS empty,
+        sum(many_seats)::bigint    AS many_seats,
+        sum(few_seats)::bigint     AS few_seats,
+        sum(standing)::bigint      AS standing,
+        sum(crushed)::bigint       AS crushed,
+        sum("full")::bigint        AS full,
+        sum(not_accepting)::bigint AS not_accepting,
+        sum(unknown)::bigint       AS unknown,
+        sum(samples)::bigint       AS samples
+    FROM occupancy_status_hourly
+    WHERE bucket >= :start AND bucket < :end
       AND (:route_id IS NULL OR route_id = :route_id)
 """
 
 _OCC_HOUR_SQL = f"""
     SELECT
-        EXTRACT(hour FROM timestamp AT TIME ZONE '{_TZ}')::int AS hour,
-        count(*) FILTER (WHERE occupancy_status = 'EMPTY')                        AS empty,
-        count(*) FILTER (WHERE occupancy_status = 'MANY_SEATS_AVAILABLE')         AS many_seats,
-        count(*) FILTER (WHERE occupancy_status = 'FEW_SEATS_AVAILABLE')          AS few_seats,
-        count(*) FILTER (WHERE occupancy_status = 'STANDING_ROOM_ONLY')           AS standing,
-        count(*) FILTER (WHERE occupancy_status = 'CRUSHED_STANDING_ROOM_ONLY')   AS crushed,
-        count(*) FILTER (WHERE occupancy_status = 'FULL')                         AS full,
-        count(*) FILTER (WHERE occupancy_status = 'NOT_ACCEPTING_PASSENGERS')     AS not_accepting,
-        count(*) FILTER (WHERE occupancy_status IS NULL
-                            OR occupancy_status = 'UNKNOWN')                      AS unknown,
-        count(*)                                                                   AS total
-    FROM vehicle_positions
-    WHERE timestamp >= :cutoff
+        EXTRACT(hour FROM bucket AT TIME ZONE '{_TZ}')::int AS hour,
+        sum(empty)::bigint         AS empty,
+        sum(many_seats)::bigint    AS many_seats,
+        sum(few_seats)::bigint     AS few_seats,
+        sum(standing)::bigint      AS standing,
+        sum(crushed)::bigint       AS crushed,
+        sum("full")::bigint        AS full,
+        sum(not_accepting)::bigint AS not_accepting,
+        sum(unknown)::bigint       AS unknown,
+        sum(samples)::bigint       AS total
+    FROM occupancy_status_hourly
+    WHERE bucket >= :start AND bucket < :end
       AND (:route_id IS NULL OR route_id = :route_id)
 """
 
@@ -551,24 +607,29 @@ def _occ_trip_ids(route_id: str | None, direction: int | None) -> list[str] | No
     return entry["trip_ids"] if entry else []
 
 
-# Occupancy scans the raw vehicle_positions hypertable (the occupancy_hourly
-# cagg lacks per-status/direction granularity), so cache assembled responses.
+# occupancy_status_hourly is a continuous aggregate, so a wide window is cheap
+# — the cache below is just burst protection for concurrent dashboard tabs,
+# same idea as the alerts cache, not a workaround for a slow raw-table scan.
 # TTL matches the frontend's 5-min analytics polling; key space is capped since
-# route_id is client-controlled.
+# route_id/start/end are client-controlled.
 _OCC_CACHE_TTL_SECONDS = 300.0
 _OCC_CACHE_MAX_KEYS = 512
-_occ_cache: dict[tuple[str | None, int, int | None], tuple[float, OccupancyResponse]] = {}
-_occ_locks: dict[tuple[str | None, int, int | None], asyncio.Lock] = {}
+_OccCacheKey = tuple[str | None, date, date, int | None]
+_occ_cache: dict[_OccCacheKey, tuple[float, OccupancyResponse]] = {}
+_occ_locks: dict[_OccCacheKey, asyncio.Lock] = {}
 
 
 @router.get("/occupancy", response_model=OccupancyResponse)
 async def occupancy(
     db: Annotated[AsyncSession, Depends(get_db)],
     route_id: Annotated[str | None, Query()] = None,
-    days: Annotated[int, Query(ge=1, le=90)] = 7,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
     direction: Annotated[int | None, Query(ge=0, le=1)] = None,
 ) -> OccupancyResponse:
-    key = (route_id, days, direction)
+    settings = get_settings()
+    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=7)
+    key: _OccCacheKey = (route_id, rng.start, rng.end, direction)
     hit = _occ_cache.get(key)
     if hit is not None and time.monotonic() - hit[0] < _OCC_CACHE_TTL_SECONDS:
         return hit[1]
@@ -578,7 +639,7 @@ async def occupancy(
         hit = _occ_cache.get(key)
         if hit is not None and time.monotonic() - hit[0] < _OCC_CACHE_TTL_SECONDS:
             return hit[1]
-        resp = await _build_occupancy(db, route_id, days, direction)
+        resp = await _build_occupancy(db, route_id, rng, direction)
         if len(_occ_cache) >= _OCC_CACHE_MAX_KEYS:
             now = time.monotonic()
             for k in [k for k, (t, _) in _occ_cache.items() if now - t >= _OCC_CACHE_TTL_SECONDS]:
@@ -593,10 +654,9 @@ async def occupancy(
 async def _build_occupancy(
     db: AsyncSession,
     route_id: str | None,
-    days: int,
+    rng: ResolvedRange,
     direction: int | None,
 ) -> OccupancyResponse:
-    cutoff = _cutoff(days)
     trip_ids = _occ_trip_ids(route_id, direction)
 
     # Build direction info for the route regardless of direction filter
@@ -614,7 +674,9 @@ async def _build_occupancy(
     # If direction was specified but no trips found, return empty response
     if trip_ids is not None and len(trip_ids) == 0:
         return OccupancyResponse(
-            period_days=days, route_id=route_id, direction=direction,
+            period_days=rng.span_days,
+            range_start=rng.start.isoformat(), range_end=rng.end.isoformat(),
+            route_id=route_id, direction=direction,
             reported=False, directions=directions,
         )
 
@@ -625,7 +687,9 @@ async def _build_occupancy(
             return sql
         return sql + "\n      AND trip_id = ANY(:trip_ids)"
 
-    params_base: dict[str, Any] = {"cutoff": cutoff, "route_id": route_id}
+    params_base: dict[str, Any] = {
+        "start": rng.start_at, "end": rng.end_at, "route_id": route_id,
+    }
     trip_bp = [bindparam("trip_ids", type_=ARRAY(String))] if use_trip_filter else []
     if use_trip_filter:
         params_base["trip_ids"] = trip_ids
@@ -633,7 +697,7 @@ async def _build_occupancy(
     totals_sql = _add_trip_filter(_OCC_TOTALS_SQL)
     row = (await db.execute(
         text(totals_sql).bindparams(
-            bindparam("cutoff"), bindparam("route_id", type_=String), *trip_bp,
+            bindparam("start"), bindparam("end"), bindparam("route_id", type_=String), *trip_bp,
         ),
         params_base,
     )).one()
@@ -649,7 +713,7 @@ async def _build_occupancy(
     hour_sql = _add_trip_filter(_OCC_HOUR_SQL) + _OCC_HOUR_SQL_TAIL
     hour_rows = (await db.execute(
         text(hour_sql).bindparams(
-            bindparam("cutoff"), bindparam("route_id", type_=String), *trip_bp,
+            bindparam("start"), bindparam("end"), bindparam("route_id", type_=String), *trip_bp,
         ),
         params_base,
     )).all()
@@ -672,7 +736,8 @@ async def _build_occupancy(
     standing_pct = round(100 * high / total_known, 1) if total_known else None
 
     return OccupancyResponse(
-        period_days=days,
+        period_days=rng.span_days,
+        range_start=rng.start.isoformat(), range_end=rng.end.isoformat(),
         route_id=route_id,
         direction=direction,
         reported=total_known > 0,

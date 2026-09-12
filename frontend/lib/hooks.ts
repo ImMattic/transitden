@@ -31,6 +31,7 @@ import {
   type ActiveVehiclesParams,
   type VehicleTripParams,
   type RouteScope,
+  type DashboardRange,
 } from "./api";
 
 // Analytics rollups change slowly (hourly/daily aggregates) — refresh every 5 min.
@@ -88,10 +89,10 @@ export function useHistorical(params: HistoricalParams) {
   });
 }
 
-export function useOnTime(days = 7, scope?: RouteScope) {
+export function useOnTime(range: DashboardRange, scope?: RouteScope) {
   return useQuery({
-    queryKey: ["ontime", days, scope],
-    queryFn: () => fetchOnTime(days, scope),
+    queryKey: ["ontime", range, scope],
+    queryFn: () => fetchOnTime(range, scope),
     // Multi-day on-time stats barely move minute to minute.
     refetchInterval: 300_000,
     staleTime: 300_000,
@@ -116,55 +117,55 @@ export function useAlerts() {
   });
 }
 
-export function useOverview(days = 7, scope?: RouteScope) {
+export function useOverview(range: DashboardRange, scope?: RouteScope) {
   return useQuery({
-    queryKey: ["overview", days, scope],
-    queryFn: () => fetchOverview(days, scope),
+    queryKey: ["overview", range, scope],
+    queryFn: () => fetchOverview(range, scope),
     refetchInterval: ANALYTICS_INTERVAL,
     staleTime: ANALYTICS_INTERVAL,
   });
 }
 
-export function useOnTimeTrend(days = 14, scope?: RouteScope, granularity: "hour" | "day" = "day") {
+export function useOnTimeTrend(range: DashboardRange, scope?: RouteScope, granularity: "hour" | "day" = "day") {
   return useQuery({
-    queryKey: ["ontimeTrend", days, scope, granularity],
-    queryFn: () => fetchOnTimeTrend(days, scope, granularity),
+    queryKey: ["ontimeTrend", range, scope, granularity],
+    queryFn: () => fetchOnTimeTrend(range, scope, granularity),
     refetchInterval: ANALYTICS_INTERVAL,
     staleTime: ANALYTICS_INTERVAL,
   });
 }
 
-export function useHeatmap(days = 30, scope?: RouteScope) {
+export function useHeatmap(range: DashboardRange, scope?: RouteScope) {
   return useQuery({
-    queryKey: ["heatmap", days, scope],
-    queryFn: () => fetchHeatmap(days, scope),
+    queryKey: ["heatmap", range, scope],
+    queryFn: () => fetchHeatmap(range, scope),
     refetchInterval: ANALYTICS_INTERVAL,
     staleTime: ANALYTICS_INTERVAL,
   });
 }
 
-export function useDistribution(days = 7, scope?: RouteScope) {
+export function useDistribution(range: DashboardRange, scope?: RouteScope) {
   return useQuery({
-    queryKey: ["distribution", days, scope],
-    queryFn: () => fetchDistribution(days, scope),
+    queryKey: ["distribution", range, scope],
+    queryFn: () => fetchDistribution(range, scope),
     refetchInterval: ANALYTICS_INTERVAL,
     staleTime: ANALYTICS_INTERVAL,
   });
 }
 
-export function useWorstStops(days = 14, scope?: RouteScope, limit = 15) {
+export function useWorstStops(range: DashboardRange, scope?: RouteScope, limit = 15) {
   return useQuery({
-    queryKey: ["worstStops", days, scope, limit],
-    queryFn: () => fetchWorstStops(days, scope, limit),
+    queryKey: ["worstStops", range, scope, limit],
+    queryFn: () => fetchWorstStops(range, scope, limit),
     refetchInterval: ANALYTICS_INTERVAL,
     staleTime: ANALYTICS_INTERVAL,
   });
 }
 
-export function useServiceDelivery(days = 7, scope?: RouteScope) {
+export function useServiceDelivery(range: DashboardRange, scope?: RouteScope) {
   return useQuery({
-    queryKey: ["serviceDelivery", days, scope],
-    queryFn: () => fetchServiceDelivery(days, scope),
+    queryKey: ["serviceDelivery", range, scope],
+    queryFn: () => fetchServiceDelivery(range, scope),
     refetchInterval: ANALYTICS_INTERVAL,
     staleTime: ANALYTICS_INTERVAL,
   });
@@ -178,10 +179,10 @@ export function useScheduleFrequency(routeId?: string) {
   });
 }
 
-export function useOccupancy(days = 7, routeId?: string, direction?: number) {
+export function useOccupancy(range: DashboardRange, routeId?: string, direction?: number) {
   return useQuery({
-    queryKey: ["occupancy", days, routeId, direction],
-    queryFn: () => fetchOccupancy(days, routeId, direction),
+    queryKey: ["occupancy", range, routeId, direction],
+    queryFn: () => fetchOccupancy(range, routeId, direction),
     refetchInterval: ANALYTICS_INTERVAL,
     staleTime: ANALYTICS_INTERVAL,
   });

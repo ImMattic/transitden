@@ -165,11 +165,11 @@ describe("DateRangePicker (custom calendar)", () => {
     const { dialog } = await openPopover();
 
     const hours = within(dialog).getByLabelText(/start hour/i);
-    // 1 PM (13:00–13:59) is entirely before the 14:30 cutoff; 8 PM is well
-    // after it. (2 PM is only *partly* before it, so it stays enabled — same
+    // 13:00 (13:00–13:59) is entirely before the 14:30 cutoff; 20:00 is well
+    // after it. (14:00 is only *partly* before it, so it stays enabled — same
     // "any overlap counts" rule the day grid uses.)
-    expect(within(hours).getByRole("option", { name: "1 PM" })).toBeDisabled();
-    expect(within(hours).getByRole("option", { name: "8 PM" })).toBeEnabled();
+    expect(within(hours).getByRole("option", { name: "13" })).toBeDisabled();
+    expect(within(hours).getByRole("option", { name: "20" })).toBeEnabled();
   });
 
   it("closes on Escape", async () => {
