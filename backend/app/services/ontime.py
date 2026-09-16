@@ -101,6 +101,56 @@ _RAIL_ROUTE_TYPES = frozenset({"0", "1", "2"})
 _rail_route_ids: frozenset[str] | None = None
 
 
+class ActiveTrips:
+    """Which trip_ids the feed has carried lately, and when it last did.
+
+    This is the evidence the misassignment guard was missing.  The guard's whole
+    premise is that a sighting landing on trip Y's slot might mean our vehicle is
+    really running Y under the wrong trip_id — but if some *other* vehicle is out
+    there reporting as Y at the same time, that reading is untenable and ours is
+    simply a late-running trip.  See ``_build_event``.
+
+    Recency rather than a per-poll snapshot, so the live loop and the backfill
+    behave identically: both walk positions in time order, so both populate this
+    the same way, and neither needs to see the future.
+    """
+
+    def __init__(self, window: timedelta | None = None) -> None:
+        self._window = window or timedelta(
+            minutes=_settings.arrival_misassignment_active_window_minutes
+        )
+        self._seen: dict[str, datetime] = {}
+
+    def observe(self, trip_id: str | None, when: datetime) -> None:
+        """Note that the feed is carrying this trip."""
+        if trip_id:
+            previous = self._seen.get(trip_id)
+            if previous is None or when > previous:
+                self._seen[trip_id] = when
+
+    def observe_all(self, vp_rows: list[dict[str, Any]], default_time: datetime) -> None:
+        for row in vp_rows:
+            self.observe(row.get("trip_id"), row.get("timestamp") or default_time)
+
+    def is_active(self, trip_id: str, when: datetime) -> bool:
+        """Was this trip reporting within the window either side of ``when``?"""
+        seen = self._seen.get(trip_id)
+        return seen is not None and abs(seen - when) <= self._window
+
+    def prune(self, now: datetime) -> None:
+        cutoff = now - self._window
+        stale = [tid for tid, seen in self._seen.items() if seen < cutoff]
+        for tid in stale:
+            del self._seen[tid]
+
+    def clear(self) -> None:
+        self._seen.clear()
+
+
+# The ingest loop's registry.  The backfill script builds its own.
+_active_trips = ActiveTrips()
+
+
 def _rail_routes() -> frozenset[str]:
     """Route ids served by rail, cached on first use."""
     global _rail_route_ids
@@ -237,8 +287,9 @@ def _build_event(
     lon: float,
     bearing: float | None,
     max_delay_s: int,
-    stop_arrivals: dict[tuple[str, str], list[int]] | None,
+    stop_arrivals: dict[tuple[str, str], list[tuple[int, str]]] | None,
     detection_method: str,
+    active_trips: ActiveTrips | None = None,
 ) -> dict[str, Any] | None:
     """Turn a matched (stop, observation time) pair into a stop-event row.
 
@@ -272,16 +323,33 @@ def _build_event(
     # have to be substantially late.  Against the bundled schedule that takes
     # deletions at terminus stops from 64% to 0% for a bus 8 minutes late,
     # while still catching a bus "late" by within a minute of a whole headway.
+    #
+    # Even that signature is ambiguous on its own, because the two readings it
+    # cannot separate are "our vehicle is really running trip Y" and "our
+    # vehicle is running our own trip, one whole headway late" — by definition
+    # those put the vehicle at the same place at the same time.  What tells them
+    # apart is not the schedule at all but the rest of the feed: if Y is itself
+    # out on the road being reported by some other vehicle, our vehicle is not
+    # Y, and a bus a headway late is exactly what we are looking at.  Measured
+    # on stored positions, checking this recovers arrivals for buses a median of
+    # 14 minutes down on the frequent routes (15, 15L, SKIP, 107R, FF1) that the
+    # bare schedule test was deleting while they sat on the stop.
     if abs(delay_seconds) >= _settings.arrival_misassignment_min_delay_seconds and route_id:
         arrivals = stop_arrivals if stop_arrivals is not None else load_stop_arrivals_index()
         competing = arrivals.get((route_id, stop_id))
         if competing:
             midnight = datetime.combine(service_date, time(0, 0), tzinfo=_DENVER)
             actual_secs = (actual_time.astimezone(_DENVER) - midnight).total_seconds()
-            # Our own scheduled arrival is in this index too, but it sits
-            # exactly |delay| away, so it can never trip the tighter gap test.
-            closest_gap = min(abs(s - actual_secs) for s in competing)
-            if closest_gap <= _settings.arrival_misassignment_max_gap_seconds:
+            registry = _active_trips if active_trips is None else active_trips
+            # Our own scheduled arrival is in this index too, and is excluded by
+            # trip_id: a competing *trip* has to be a different one.
+            aliases = [
+                tid
+                for s, tid in competing
+                if tid != trip_id
+                and abs(s - actual_secs) <= _settings.arrival_misassignment_max_gap_seconds
+            ]
+            if aliases and not any(registry.is_active(tid, actual_time) for tid in aliases):
                 return None
 
     return {
@@ -308,20 +376,22 @@ def classify_arrival(
     *,
     radius_m: float | None = None,
     max_delay_s: int | None = None,
-    stop_arrivals: dict[tuple[str, str], list[int]] | None = None,
+    stop_arrivals: dict[tuple[str, str], list[tuple[int, str]]] | None = None,
     skip_sequence: int | None = None,
+    active_trips: ActiveTrips | None = None,
 ) -> dict[str, Any] | None:
     """Turn one vehicle position into a stop-arrival event, or ``None``.
 
     ``schedule`` maps trip_id → list of 6-tuples:
       (stop_sequence, stop_id, arrival_secs, stop_lat, stop_lon, cumulative_dist_m)
 
-    ``stop_arrivals`` maps (route_id, stop_id) → sorted list of arrival_secs for
-    all trips on that route.  When provided (or loaded from cache when ``None``),
-    arrivals whose delay exceeds the on-time threshold are suppressed if another
-    trip on the same route is scheduled closer to the actual arrival time — the
-    signature of a GTFS-RT trip_id misassignment on high-frequency routes.  Pass
-    an empty dict to disable the check (useful in tests).
+    ``stop_arrivals`` maps (route_id, stop_id) → sorted (arrival_secs, trip_id)
+    for all trips on that route.  When provided (or loaded from cache when
+    ``None``), a substantially late arrival landing almost exactly on another
+    trip's slot is suppressed as a probable GTFS-RT trip_id misassignment —
+    unless ``active_trips`` says that other trip is itself out on the road, in
+    which case ours is an ordinary late bus.  Pass an empty dict to disable the
+    check (useful in tests).
 
     ``skip_sequence`` excludes one stop_sequence from the nearest-timepoint
     search.  Callers pass the trip's origin here: that stop is timed by
@@ -393,6 +463,7 @@ def classify_arrival(
         max_delay_s=max_delay_s,
         stop_arrivals=stop_arrivals,
         detection_method=DETECTION_GEOFENCE,
+        active_trips=active_trips,
     )
 
 
@@ -431,8 +502,9 @@ def classify_segment_arrivals(
     *,
     radius_m: float | None = None,
     max_delay_s: int | None = None,
-    stop_arrivals: dict[tuple[str, str], list[int]] | None = None,
+    stop_arrivals: dict[tuple[str, str], list[tuple[int, str]]] | None = None,
     skip_sequence: int | None = None,
+    active_trips: ActiveTrips | None = None,
 ) -> list[dict[str, Any]]:
     """Timepoints the vehicle passed *between* two consecutive fixes.
 
@@ -503,6 +575,7 @@ def classify_segment_arrivals(
             max_delay_s=max_delay_s,
             stop_arrivals=stop_arrivals,
             detection_method=DETECTION_SEGMENT,
+            active_trips=active_trips,
         )
         if event is not None:
             events.append(event)
@@ -549,6 +622,18 @@ class _PendingDeparture:
     lat: float
     lon: float
     bearing: float | None
+    # First snapshot seen *outside* the circle since the vehicle was last at the
+    # stop — the interpolation's outer endpoint.  Held separately from whichever
+    # later fix finally confirms the direction of travel: the crossing happened
+    # between the last inside fix and the first outside one, so interpolating
+    # against a fix two or three polls further down the road would drag the
+    # departure time late.  Cleared whenever the vehicle is seen inside again.
+    first_outside_time: datetime | None = None
+    first_outside_dist_m: float | None = None
+    # Set when the vehicle has left the circle without making progress down the
+    # route — provisionally a yard move.  Not fatal (see ``feed``), but it stops
+    # ``flush`` from later passing the move off as a departure.
+    left_without_progress: bool = False
 
 
 def _interpolate_crossing(
@@ -591,8 +676,9 @@ class OriginDepartureTracker:
         schedule: dict[str, list[tuple[int, str, int, float, float, float]]] | None = None,
         radius_m: float | None = None,
         max_delay_s: int | None = None,
-        stop_arrivals: dict[tuple[str, str], list[int]] | None = None,
+        stop_arrivals: dict[tuple[str, str], list[tuple[int, str]]] | None = None,
         stale_after: timedelta | None = None,
+        active_trips: ActiveTrips | None = None,
     ) -> None:
         self._origins = origins
         self._schedule = schedule
@@ -603,6 +689,7 @@ class OriginDepartureTracker:
             _settings.arrival_max_delay_seconds if max_delay_s is None else max_delay_s
         )
         self._stop_arrivals = stop_arrivals
+        self._active_trips = active_trips
         self._stale_after = stale_after or timedelta(
             minutes=_settings.origin_departure_stale_minutes
         )
@@ -637,6 +724,12 @@ class OriginDepartureTracker:
 
         Trips with fewer than two timepoints carry no direction to test, so they
         keep the old leave-the-circle behaviour.
+
+        Note this is a *provisional* test, asked again on each later fix — see
+        ``feed``.  Progress is measured against the straight chord from the
+        origin to the next timepoint, which may be kilometres away and point
+        somewhere the first block of the route does not, so the answer on the
+        first fix outside the circle is frequently a false negative.
         """
         timepoints = self.schedule.get(trip_id)
         if not timepoints or len(timepoints) < 2:
@@ -693,6 +786,11 @@ class OriginDepartureTracker:
                 pending.last_inside_dist_m = dist_m
                 pending.lat, pending.lon = lat, lon
                 pending.bearing = vp_row.get("bearing")
+                # Back at the gate: whatever it did out there, this is the new
+                # inner endpoint and the excursion no longer counts against it.
+                pending.first_outside_time = None
+                pending.first_outside_dist_m = None
+                pending.left_without_progress = False
             return None
 
         # Outside the circle.  Without a sighting at the stop we have no inner
@@ -708,13 +806,33 @@ class OriginDepartureTracker:
         if current_stop_seq is not None and current_stop_seq <= seq:
             return None
 
+        # First fix outside the circle since the vehicle was last at the stop:
+        # remember it as the interpolation's outer endpoint, whether or not this
+        # is the fix that settles the direction question below.
+        if pending.first_outside_time is None:
+            pending.first_outside_time = actual_time
+            pending.first_outside_dist_m = dist_m
+
         if not self._left_along_the_route(trip_id, seq, lat, lon):
-            # Left the circle, but not down the route — a yard move, not a
-            # departure.  Drop the pending entry rather than holding it: keeping
-            # it would let `flush` record this as a departure once the trip goes
-            # quiet.  Not marked done, so a vehicle that comes back and pulls out
-            # properly still re-arms.
-            del self._pending[key]
+            # Left the circle without advancing down the route.  That is the
+            # signature of a yard move — but it is also what a perfectly ordinary
+            # departure looks like on its *first* fix outside the circle, because
+            # along-route progress is measured against the chord to the next
+            # timepoint (often kilometres away, and rarely in the direction of
+            # the first block or two of actual driving).  A bus pulling east out
+            # of a station bay before turning north up its route projects to zero
+            # progress, and deciding here used to delete it: 18% of runs lost
+            # their origin that way, 79% of them reading *exactly* zero progress
+            # while sitting a median of 163 m from the stop — barely outside the
+            # circle rather than off to the yard.
+            #
+            # So this is not the moment to decide.  Keep the pending entry and
+            # ask again on the next fix, by which point a real departure has
+            # unambiguously advanced.  The only thing the failed test costs is
+            # the right to resolve via `flush`: a vehicle that leaves without
+            # ever making progress and then goes quiet really did go to the yard,
+            # and must not be written up as a departure.
+            pending.left_without_progress = True
             return None
 
         del self._pending[key]
@@ -722,8 +840,8 @@ class OriginDepartureTracker:
         departed_at = _interpolate_crossing(
             pending.last_inside_time,
             pending.last_inside_dist_m,
-            actual_time,
-            dist_m,
+            pending.first_outside_time or actual_time,
+            pending.first_outside_dist_m if pending.first_outside_dist_m is not None else dist_m,
             self._radius_m,
         )
         return self._emit(pending, departed_at)
@@ -735,12 +853,20 @@ class OriginDepartureTracker:
         reassigned).  Rather than drop the event, record the last moment it was
         seen at the stop — a lower bound, and still far closer than the first
         sighting was.  ``force`` drains everything, for end-of-backfill.
+
+        A trip last seen *outside* the circle having made no progress down the
+        route is the exception: that is a vehicle which left for the yard, not
+        one that never left at all, so its entry is discarded rather than timed.
+        It is not marked done, so a vehicle that comes back and pulls out
+        properly still re-arms.
         """
         out: list[dict[str, Any]] = []
         for key, pending in list(self._pending.items()):
             if not force and now - pending.last_inside_time < self._stale_after:
                 continue
             del self._pending[key]
+            if pending.left_without_progress:
+                continue
             self._done.add((pending.trip_id, pending.stop_sequence, pending.service_date))
             event = self._emit(pending, pending.last_inside_time)
             if event is not None:
@@ -762,6 +888,7 @@ class OriginDepartureTracker:
             max_delay_s=self._max_delay_s,
             stop_arrivals=self._stop_arrivals,
             detection_method=DETECTION_ORIGIN_DEPARTURE,
+            active_trips=self._active_trips,
         )
 
     def _prune_done(self, today: date) -> None:
@@ -833,8 +960,9 @@ class TerminusFallbackTracker:
         *,
         radius_m: float | None = None,
         max_delay_s: int | None = None,
-        stop_arrivals: dict[tuple[str, str], list[int]] | None = None,
+        stop_arrivals: dict[tuple[str, str], list[tuple[int, str]]] | None = None,
         stale_after: timedelta | None = None,
+        active_trips: ActiveTrips | None = None,
     ) -> None:
         self._schedule = schedule
         self._radius_m = radius_m
@@ -842,6 +970,7 @@ class TerminusFallbackTracker:
             _settings.arrival_max_delay_seconds if max_delay_s is None else max_delay_s
         )
         self._stop_arrivals = stop_arrivals
+        self._active_trips = active_trips
         self._stale_after = stale_after or timedelta(
             minutes=_settings.arrival_terminus_fallback_stale_minutes
         )
@@ -974,6 +1103,7 @@ class TerminusFallbackTracker:
                 max_delay_s=self._max_delay_s,
                 stop_arrivals=self._stop_arrivals,
                 detection_method=DETECTION_TERMINUS_FALLBACK,
+                active_trips=self._active_trips,
             )
             if event is not None:
                 out.append(event)
@@ -1016,26 +1146,26 @@ def _prune_last_fix(now: datetime) -> None:
 
 def _live_tracker(
     origins: dict[str, tuple[int, str, int, float, float]],
-    arrivals_index: dict[tuple[str, str], list[int]],
+    arrivals_index: dict[tuple[str, str], list[tuple[int, str]]],
 ) -> OriginDepartureTracker:
     """The ingest loop's tracker — one instance, so dwells span polls."""
     global _live_tracker_instance
     if _live_tracker_instance is None:
         _live_tracker_instance = OriginDepartureTracker(
-            origins, stop_arrivals=arrivals_index
+            origins, stop_arrivals=arrivals_index, active_trips=_active_trips
         )
     return _live_tracker_instance
 
 
 def _live_terminus(
     schedule: dict[str, list[tuple[int, str, int, float, float, float]]],
-    arrivals_index: dict[tuple[str, str], list[int]],
+    arrivals_index: dict[tuple[str, str], list[tuple[int, str]]],
 ) -> TerminusFallbackTracker:
     """The ingest loop's terminus tracker — one instance, so approaches persist."""
     global _live_terminus_tracker
     if _live_terminus_tracker is None:
         _live_terminus_tracker = TerminusFallbackTracker(
-            schedule, stop_arrivals=arrivals_index
+            schedule, stop_arrivals=arrivals_index, active_trips=_active_trips
         )
     return _live_terminus_tracker
 
@@ -1063,6 +1193,11 @@ def detect_arrivals(
     tracker = _live_tracker(origins, arrivals_index)
     terminus = _live_terminus(schedule, arrivals_index)
 
+    # Register every trip in this poll *before* classifying any of it, so the
+    # misassignment guard can see the whole feed cycle rather than only the
+    # trips that happen to sort earlier in the batch.
+    _active_trips.observe_all(vp_rows, default_time)
+
     candidates: list[dict[str, Any]] = []
     for row in vp_rows:
         actual = row.get("timestamp") or default_time
@@ -1088,6 +1223,7 @@ def detect_arrivals(
                     schedule,
                     stop_arrivals=arrivals_index,
                     skip_sequence=skip_sequence,
+                    active_trips=_active_trips,
                 )
             )
         if trip_id:
@@ -1099,6 +1235,7 @@ def detect_arrivals(
             actual,
             stop_arrivals=arrivals_index,
             skip_sequence=skip_sequence,
+            active_trips=_active_trips,
         )
         if arrival is not None:
             candidates.append(arrival)
@@ -1130,6 +1267,7 @@ def detect_arrivals(
     _prune_recorded(today)
     _prune_finished(today)
     _prune_last_fix(default_time)
+    _active_trips.prune(default_time)
     return events
 
 
@@ -1139,5 +1277,6 @@ def reset_detection_state() -> None:
     _recorded.clear()
     _finished.clear()
     _last_fix.clear()
+    _active_trips.clear()
     _live_tracker_instance = None
     _live_terminus_tracker = None

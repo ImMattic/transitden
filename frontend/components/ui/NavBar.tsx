@@ -93,7 +93,7 @@ export default function NavBar() {
               height={394}
               priority
               unoptimized
-              className="h-[calc(0.72em+3px)] w-auto"
+              className="h-[calc(0.72em+1px)] w-auto"
             />
             TransitDen
           </Link>

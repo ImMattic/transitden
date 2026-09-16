@@ -427,10 +427,13 @@ def load_route_direction_info(
 # crow-flies circle — reducing false matches on parallel streets and curved routes.
 _trip_shape_dist_cache: dict[str, list[tuple[int, str, int, float, float, float]]] | None = None
 
-# {(route_id, stop_id): sorted list of arrival_secs from all trips on that route}.
-# Used to detect trip_id misassignment: if another trip on the same route is
-# scheduled closer to the observed arrival time, the bus is likely on the wrong trip.
-_stop_arrivals_cache: dict[tuple[str, str], list[int]] | None = None
+# {(route_id, stop_id): sorted [(arrival_secs, trip_id), ...] across all trips on
+# that route}.  Used to detect trip_id misassignment: when a sighting lands almost
+# exactly on a competing trip's slot, the bus may be running that trip instead.
+# The trip_id travels with the time because knowing *which* trip is the competitor
+# is what lets the guard ask whether that trip is itself out on the road — see
+# ``_build_event`` in services/ontime.py.
+_stop_arrivals_cache: dict[tuple[str, str], list[tuple[int, str]]] | None = None
 
 # Minimum distance (metres) between adjacent timepoints for a stop to be used
 # in on-time detection.  Both members of a too-close pair are dropped.
@@ -527,35 +530,37 @@ def load_trip_shape_dist_schedule(
 
 def _build_stop_arrivals_index(
     gtfs_static_root: Path | None = None,
-) -> dict[tuple[str, str], list[int]]:
-    """Build {(route_id, stop_id): sorted arrival_secs list} across all trips.
+) -> dict[tuple[str, str], list[tuple[int, str]]]:
+    """Build {(route_id, stop_id): sorted [(arrival_secs, trip_id)]} across all trips.
 
     Joining the shape-dist schedule (trip_id → timepoints) with trip metadata
     (trip_id → route_id) gives us all scheduled arrival times at each stop for
-    each route.  classify_arrival() uses this to detect when a better-matching
-    trip exists for an observed arrival — the signature of a GTFS-RT trip_id
-    misassignment on high-frequency routes.
+    each route, and which trip owns each one.  classify_arrival() uses this to
+    detect when a competing trip explains an observed arrival better than the
+    trip_id the feed supplied — the signature of a GTFS-RT trip_id misassignment
+    on high-frequency routes — and to check whether that competitor is itself
+    reporting, which is what distinguishes an alias from an ordinary late bus.
     """
     root = gtfs_static_root or resolve_gtfs_static_root()
     shape_dist_schedule = load_trip_shape_dist_schedule(gtfs_static_root)
     trip_meta = _load_trip_meta(root)
 
-    raw: dict[tuple[str, str], set[int]] = defaultdict(set)
+    raw: dict[tuple[str, str], set[tuple[int, str]]] = defaultdict(set)
     for trip_id, timepoints in shape_dist_schedule.items():
         meta = trip_meta.get(trip_id)
         if not meta:
             continue
         route_id = meta[0]
         for _, stop_id, arrival_secs, _, _, _ in timepoints:
-            raw[(route_id, stop_id)].add(arrival_secs)
+            raw[(route_id, stop_id)].add((arrival_secs, trip_id))
 
     return {k: sorted(v) for k, v in raw.items()}
 
 
 def load_stop_arrivals_index(
     gtfs_static_root: Path | None = None,
-) -> dict[tuple[str, str], list[int]]:
-    """Cached {(route_id, stop_id): sorted arrival_secs list} for misassignment detection."""
+) -> dict[tuple[str, str], list[tuple[int, str]]]:
+    """Cached {(route_id, stop_id): sorted [(arrival_secs, trip_id)]} for misassignment detection."""
     global _stop_arrivals_cache
     if _stop_arrivals_cache is None:
         _stop_arrivals_cache = _build_stop_arrivals_index(gtfs_static_root)

@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from unittest.mock import patch
 
 from app.services.ontime import (
+    ActiveTrips,
     OriginDepartureTracker,
     TerminusFallbackTracker,
     _haversine_m,
@@ -340,16 +341,74 @@ def test_origin_skipped_by_arrival_classifier():
 
 # Build a two-trip schedule: T1 at 08:00, T2 at 08:15 — same route R1, same stop S1.
 _ARR_SECS_T2 = _ARR_SECS + 15 * 60  # 08:15:00
-_TWO_TRIP_INDEX: dict = {("R1", "S1"): sorted([_ARR_SECS, _ARR_SECS_T2])}
+_TWO_TRIP_INDEX: dict = {("R1", "S1"): sorted([(_ARR_SECS, "T1"), (_ARR_SECS_T2, "T2")])}
+
+
+def _nobody_running() -> ActiveTrips:
+    """An empty feed: no competing trip is out on the road."""
+    return ActiveTrips()
+
+
+def _also_running(trip_id: str, when) -> ActiveTrips:
+    """A feed in which ``trip_id`` is being reported by some other vehicle."""
+    registry = ActiveTrips()
+    registry.observe(trip_id, when)
+    return registry
 
 
 def test_misassigned_trip_suppressed():
     # Bus on T1 (08:00) but arrives at exactly T2's scheduled time (08:15).
     # The GTFS-RT feed still reports trip_id=T1, making it look 15 min late.
-    # A better match (T2) exists in the index → suppress.
+    # A better match (T2) exists in the index and nothing else is reporting as
+    # T2 — so this vehicle is the one running T2 → suppress.
     scheduled_t1 = _scheduled_utc(_SERVICE_DATE, _ARR_SECS)
     actual = scheduled_t1 + timedelta(seconds=15 * 60)
-    event = classify_arrival(_vp(), _SCHEDULE, actual, stop_arrivals=_TWO_TRIP_INDEX)
+    event = classify_arrival(
+        _vp(), _SCHEDULE, actual,
+        stop_arrivals=_TWO_TRIP_INDEX, active_trips=_nobody_running(),
+    )
+    assert event is None
+
+
+def test_late_bus_kept_when_the_competing_trip_is_also_running():
+    # The bug: same geometry as above — T1 arriving one whole headway late lands
+    # exactly on T2's slot — but here another vehicle *is* out reporting as T2.
+    # Our vehicle therefore cannot be T2; it is T1, 15 minutes down.  The bare
+    # schedule test cannot tell these two apart, and was deleting the late bus.
+    scheduled_t1 = _scheduled_utc(_SERVICE_DATE, _ARR_SECS)
+    actual = scheduled_t1 + timedelta(seconds=15 * 60)
+    event = classify_arrival(
+        _vp(), _SCHEDULE, actual,
+        stop_arrivals=_TWO_TRIP_INDEX, active_trips=_also_running("T2", actual),
+    )
+    assert event is not None
+    assert event["trip_id"] == "T1"
+    assert event["delay_seconds"] == 15 * 60
+
+
+def test_stale_sighting_of_the_competing_trip_does_not_vouch_for_it():
+    # Yesterday's run of T2 is not evidence that T2 is on the road now: outside
+    # the active window the guard falls back to suppressing.
+    scheduled_t1 = _scheduled_utc(_SERVICE_DATE, _ARR_SECS)
+    actual = scheduled_t1 + timedelta(seconds=15 * 60)
+    event = classify_arrival(
+        _vp(), _SCHEDULE, actual,
+        stop_arrivals=_TWO_TRIP_INDEX,
+        active_trips=_also_running("T2", actual - timedelta(days=1)),
+    )
+    assert event is None
+
+
+def test_our_own_trip_running_does_not_vouch_for_itself():
+    # The index carries our own scheduled slot too.  Being in the feed ourselves
+    # must not count as "the competitor is out there" — only a *different* trip
+    # can be the competitor.
+    scheduled_t1 = _scheduled_utc(_SERVICE_DATE, _ARR_SECS)
+    actual = scheduled_t1 + timedelta(seconds=15 * 60)
+    event = classify_arrival(
+        _vp(), _SCHEDULE, actual,
+        stop_arrivals=_TWO_TRIP_INDEX, active_trips=_also_running("T1", actual),
+    )
     assert event is None
 
 
@@ -373,7 +432,7 @@ def test_no_better_match_keeps_arrival():
     scheduled = _scheduled_utc(_SERVICE_DATE, _ARR_SECS)
     actual = scheduled + timedelta(seconds=12 * 60)
     # Only T1 in the index for this stop — no better match.
-    arrivals_index: dict = {("R1", "S1"): [_ARR_SECS]}
+    arrivals_index: dict = {("R1", "S1"): [(_ARR_SECS, "T1")]}
     event = classify_arrival(_vp(), _SCHEDULE, actual, stop_arrivals=arrivals_index)
     assert event is not None
     assert event["delay_seconds"] == 12 * 60
@@ -590,6 +649,66 @@ def test_vehicle_that_returns_after_a_yard_move_still_departs():
     assert t.feed(_vp(), scheduled - timedelta(seconds=30)) is None      # back at the gate
     event = t.feed(_vp(lat=_AWAY_LAT), scheduled + timedelta(seconds=30))
     assert event is not None
+
+
+def test_sideways_first_step_out_of_the_bay_still_departs():
+    # The reported bug (Route 52 at Alameda Station, trip 115888171).  The route
+    # runs due north to S2/S3, but the bus pulls *east* out of the station bay
+    # before turning up it.  Its first fix outside the circle therefore projects
+    # to zero along-route progress — indistinguishable from a yard move at that
+    # instant — and used to delete the pending entry outright, so the genuine
+    # departure on the very next fix had nothing left to resolve against and the
+    # origin got no row at all.  The answer is to wait one more fix, not to
+    # decide here.
+    scheduled = _scheduled_utc(_SERVICE_DATE, _ARR_SECS)
+    t = _route_tracker()
+    assert t.feed(_vp(), scheduled - timedelta(seconds=30)) is None
+    # ~180 m due east: clear of the 100 m circle, zero progress up the route.
+    east = _vp(lat=_STOP_LAT, lon=_STOP_LON + 0.0021)
+    assert t.feed(east, scheduled) is None
+    # Next fix is unambiguously up the route — the departure resolves.
+    event = t.feed(_vp(lat=_AWAY_LAT), scheduled + timedelta(seconds=30))
+    assert event is not None
+    assert event["stop_sequence"] == 5
+
+
+def test_departure_is_timed_from_the_first_fix_outside_the_circle():
+    # Having waited for a later fix to confirm direction, the crossing must still
+    # be interpolated against the *first* fix outside the circle — the crossing
+    # happened in that gap.  Timing it against whichever fix confirmed the
+    # direction would drag the departure minutes late.
+    scheduled = _scheduled_utc(_SERVICE_DATE, _ARR_SECS)
+    t = _route_tracker()
+    t.feed(_vp(), scheduled - timedelta(seconds=30))
+    east = _vp(lat=_STOP_LAT, lon=_STOP_LON + 0.0021)
+    t.feed(east, scheduled)
+    event = t.feed(_vp(lat=_AWAY_LAT), scheduled + timedelta(minutes=5))
+    assert event is not None
+    # Crossing lands inside the 30 s gap it actually happened in, not out at the
+    # five-minute fix that merely confirmed the direction.
+    assert scheduled - timedelta(seconds=30) <= event["actual_time"] <= scheduled
+
+
+def test_leaving_sideways_and_going_quiet_is_still_not_a_departure():
+    # The other half: holding the pending entry must not let a real yard move
+    # resurface through flush.  A vehicle that left the circle, never made
+    # progress and then went silent went to the yard.
+    scheduled = _scheduled_utc(_SERVICE_DATE, _ARR_SECS)
+    t = _route_tracker()
+    t.feed(_vp(), scheduled - timedelta(seconds=30))
+    t.feed(_vp(lat=_STOP_LAT, lon=_STOP_LON + 0.0021), scheduled)
+    assert t.flush(scheduled + timedelta(hours=1), force=True) == []
+
+
+def test_never_leaving_the_gate_still_resolves_by_flush():
+    # And the flush path it protects must still work: a trip that goes quiet
+    # while parked at its origin is recorded at its last sighting there.
+    scheduled = _scheduled_utc(_SERVICE_DATE, _ARR_SECS)
+    t = _route_tracker()
+    t.feed(_vp(), scheduled)
+    events = t.flush(scheduled + timedelta(hours=1), force=True)
+    assert [e["stop_sequence"] for e in events] == [5]
+    assert events[0]["actual_time"] == scheduled
 
 
 def test_single_timepoint_trip_keeps_old_behaviour():
