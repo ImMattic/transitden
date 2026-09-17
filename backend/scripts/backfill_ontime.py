@@ -74,6 +74,7 @@ from app.services.gtfs_schedule import (  # noqa: E402
     load_trip_shape_dist_schedule,
 )
 from app.services.ontime import (  # noqa: E402
+    ActiveTrips,
     OriginDepartureTracker,
     TerminusFallbackTracker,
     classify_arrival,
@@ -205,8 +206,11 @@ async def _backfill(batch_size: int) -> int:
         raise SystemExit("No timepoint schedule loaded — is gtfs-static present?")
 
     origins = load_trip_origin_timepoints()
-    tracker = OriginDepartureTracker(origins)
-    terminus = TerminusFallbackTracker(schedule)
+    # One registry for the whole replay, so the misassignment guard can tell a
+    # bus a headway late from a trip_id alias exactly as the live loop does.
+    active_trips = ActiveTrips()
+    tracker = OriginDepartureTracker(origins, active_trips=active_trips)
+    terminus = TerminusFallbackTracker(schedule, active_trips=active_trips)
 
     seen: set[tuple[str, int, date]] = set()
     # Runs closed by their terminus arrival — see _dedupe.
@@ -239,6 +243,11 @@ async def _backfill(batch_size: int) -> int:
             if not rows:
                 break
 
+            # Register the batch before classifying it, mirroring the live
+            # loop's per-poll registration.
+            for row in rows:
+                active_trips.observe(row[0], row[7])
+
             candidates: list[dict] = []
             for trip_id, route_id, lat, lon, bearing, cur_status, cur_stop_seq, ts, vp_id in rows:
                 last_ts, last_id = ts, vp_id
@@ -267,6 +276,7 @@ async def _backfill(batch_size: int) -> int:
                         classify_segment_arrivals(
                             previous[0], previous[1], vp_row, ts, schedule,
                             skip_sequence=skip_sequence,
+                            active_trips=active_trips,
                         )
                     )
                 if trip_id:
@@ -277,6 +287,7 @@ async def _backfill(batch_size: int) -> int:
                     schedule,
                     ts,
                     skip_sequence=skip_sequence,
+                    active_trips=active_trips,
                 )
                 if arrival is not None:
                     candidates.append(arrival)
@@ -294,6 +305,9 @@ async def _backfill(batch_size: int) -> int:
                     async with writer.begin():
                         await writer.execute(insert(_SHADOW), events)
                 total += len(events)
+
+            if last_ts is not None:
+                active_trips.prune(last_ts)
 
             print(f"  …processed up to {last_ts}: {total} arrivals so far", flush=True)
             if len(rows) < batch_size:

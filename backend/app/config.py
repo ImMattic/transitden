@@ -104,6 +104,15 @@ class Settings(BaseSettings):
     # which blanks stops on the trip page and biases on-time stats optimistic.
     arrival_misassignment_min_delay_seconds: int = 600
     arrival_misassignment_max_gap_seconds: int = 60
+    # …and even then, only when the competing trip is nowhere in the feed.  Those
+    # two conditions cannot separate "our vehicle is really running trip Y" from
+    # "our vehicle is a whole headway late" — both put it in the same place at
+    # the same time — so the tie is broken on evidence outside the schedule: if
+    # another vehicle is out there reporting as Y, ours is not Y.  A trip counts
+    # as out there if the feed carried it within this many minutes of the
+    # sighting.  Wide enough to span an ordinary feed hiccup; narrow enough that
+    # yesterday's run of the same trip_id doesn't vouch for today's.
+    arrival_misassignment_active_window_minutes: int = 30
     # Two consecutive fixes further apart than this are not read as one
     # continuous movement, so no arrival is interpolated between them —
     # inventing a crossing time across a long feed dropout would be a guess,
