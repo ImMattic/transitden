@@ -180,7 +180,7 @@ python -m pytest tests/
 
 Make sure the app builds and runs cleanly with `docker compose up --build`.
 
-### 5. Open a pull request
+### 5. Open a PR
 
 Push your branch and open a PR against `main`. Include a short description of what you changed and why.
 
