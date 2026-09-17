@@ -74,7 +74,7 @@ export default function NavBar() {
                 height": Inter publishes a capHeight of 1467/2048 units,
                 ≈0.72em, so a 1em-tall icon oversized itself above the caps by
                 the remaining ~0.28em no matter how the leftover +Npx on top
-                was tuned (that's the bug every earlier "+10px" / "+1px" /
+                was tuned (that's the bug every earlier "+10px" / "+2px" /
                 "+0.25px" pass was chasing — the miss was in the base unit, not
                 the addend). The +2px on top of the corrected 0.72em base is
                 what makes the mark read a bit bigger than the wordmark, same
@@ -93,7 +93,7 @@ export default function NavBar() {
               height={394}
               priority
               unoptimized
-              className="h-[calc(0.72em+1px)] w-auto"
+              className="h-[calc(0.72em+2px)] w-auto"
             />
             TransitDen
           </Link>
