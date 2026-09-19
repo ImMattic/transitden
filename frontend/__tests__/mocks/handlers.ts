@@ -75,6 +75,7 @@ export const handlers = [
       vehicles_max_span_hours: 24,
       historical_max_span_days: 7,
       export_max_span_days: 31,
+      dashboard_max_span_days: 366,
       data_retention_days: 365,
     })
   ),
