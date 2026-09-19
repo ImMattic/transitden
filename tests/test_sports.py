@@ -178,9 +178,12 @@ def test_event_without_competitions_is_skipped():
     assert sports._parse_event({"id": "1", "date": "2026-09-10T01:00Z"}, AVS, NOW) is None
 
 
-def test_date_range_covers_yesterday_and_today():
+def test_fetch_dates_covers_yesterday_and_today():
     """A 9pm game that ends after midnight must still be inside its post window."""
-    assert sports._date_range(datetime(2026, 9, 10).date()) == "20260909-20260910"
+    assert sports._fetch_dates(datetime(2026, 9, 10).date()) == (
+        datetime(2026, 9, 9).date(),
+        datetime(2026, 9, 10).date(),
+    )
 
 
 # ── Visibility and ordering ────────────────────────────────────────────────

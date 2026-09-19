@@ -7,7 +7,7 @@ doesn't move Denver ridership, so it isn't worth a carousel turn.
 
 Shape of the thing:
 
-    ESPN scoreboard (one request per league, yesterday+today)
+    ESPN scoreboard (two requests per league, yesterday and today)
       → _parse_event()  keeps only events where our team is the home side
       → GameSlide
       → cached with a TTL that tightens as a game gets closer
@@ -361,14 +361,30 @@ def _clean_hex(value: object) -> str | None:
 # ── Fetching ───────────────────────────────────────────────────────────────
 
 
-def _date_range(today: date) -> str:
-    """Yesterday through today, in ESPN's ``YYYYMMDD-YYYYMMDD`` form.
+def _fetch_dates(today: date) -> tuple[date, date]:
+    """Yesterday and today.
 
     Yesterday is included so a game that started at 9pm and ended after midnight
     is still inside its post-game window rather than vanishing at the date roll.
+
+    Two separate single-day requests rather than one ``YYYYMMDD-YYYYMMDD`` range:
+    ESPN's scoreboard endpoint started rejecting the range form outright (HTTP
+    400, "Failed to get events endpoint") for every league regardless of the
+    dates given, which silently dropped every game from the carousel once the
+    per-league fallback cache aged out. Single-day queries are unaffected.
     """
-    yesterday = today - timedelta(days=1)
-    return f"{yesterday:%Y%m%d}-{today:%Y%m%d}"
+    return today - timedelta(days=1), today
+
+
+async def _fetch_day(
+    session: aiohttp.ClientSession, url: str, day: date
+) -> list[dict]:
+    params = {"dates": f"{day:%Y%m%d}", "limit": "100"}
+    async with session.get(url, params=params) as resp:
+        resp.raise_for_status()
+        # ESPN serves this as text/javascript often enough to matter.
+        payload = await resp.json(content_type=None)
+    return payload.get("events") or []
 
 
 async def _fetch_league(
@@ -378,14 +394,17 @@ async def _fetch_league(
     now: datetime,
 ) -> list[GameSlide]:
     url = f"{_ESPN_BASE}/{path}/scoreboard"
-    params = {"dates": _date_range(now.astimezone(_DENVER).date()), "limit": "100"}
-    async with session.get(url, params=params) as resp:
-        resp.raise_for_status()
-        # ESPN serves this as text/javascript often enough to matter.
-        payload = await resp.json(content_type=None)
+    days = _fetch_dates(now.astimezone(_DENVER).date())
+    results = await asyncio.gather(*(_fetch_day(session, url, day) for day in days))
+
+    # Dedupe by event id in case the same game were ever returned by both days.
+    events_by_id: dict[str, dict] = {}
+    for events in results:
+        for event in events:
+            events_by_id[str(event.get("id"))] = event
 
     slides: list[GameSlide] = []
-    for event in payload.get("events") or []:
+    for event in events_by_id.values():
         for team in teams:
             slide = _parse_event(event, team, now)
             if slide is not None:
