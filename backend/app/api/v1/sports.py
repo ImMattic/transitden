@@ -67,6 +67,14 @@ async def get_games(response: Response) -> GamesResponse:
     games = [g for g in games if sports.is_visible(g, reference, window)]
     games.sort(key=sports.sort_key)
 
+    # A finished game whose real end time we don't trust (see _record_final)
+    # is sent to the client with a resolved estimate rather than a bare
+    # ``null`` — the frontend says how long ago from whatever `end` it's
+    # given, and shouldn't have to re-derive the same estimate itself.
+    for g in games:
+        if g.state == "post" and g.end is None:
+            g.end = sports.end_time(g)
+
     # A simulated payload must never be cached: its clock moves far faster than
     # any max-age we'd pick, and a stale frame would freeze the countdown.
     response.headers["Cache-Control"] = (

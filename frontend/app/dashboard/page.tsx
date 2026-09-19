@@ -13,8 +13,20 @@ import {
   useOccupancy,
   useAlerts,
   useRoutes,
+  useLimits,
 } from "@/lib/hooks";
-import type { RouteScope } from "@/lib/api";
+import type { DashboardRange, RouteScope } from "@/lib/api";
+import {
+  DEFAULT_DASHBOARD_RANGE_LIMITS,
+  addDays,
+  fromDateStr,
+  isPresetActive,
+  presetRange,
+  spanDays,
+  toDateStr,
+  type DashboardRangeLimits,
+  type DashboardRangePreset,
+} from "@/lib/dashboardDateRange";
 import {
   EMPTY_DASHBOARD_FILTERS,
   dashboardFilterChips,
@@ -22,6 +34,7 @@ import {
   type DashboardFilters,
 } from "@/lib/dashboardFilters";
 import DashboardFilterMenu from "@/components/dashboard/DashboardFilterMenu";
+import DashboardDateRangePicker from "@/components/dashboard/DashboardDateRangePicker";
 import { ActiveFilterChip } from "@/components/ui/FilterControls";
 import { Card, SectionHeading } from "@/components/ui/Card";
 import KpiCard from "@/components/dashboard/KpiCard";
@@ -39,8 +52,6 @@ import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { formatDelayMin, onTimeColor } from "@/lib/utils";
 import { useTheme } from "@/lib/useTheme";
 
-const DAY_OPTIONS = [1, 7, 30];
-
 function fmtSpan(hhmm: string | null | undefined): string {
   if (!hhmm) return "—";
   const [hStr, mStr] = hhmm.split(":");
@@ -56,13 +67,55 @@ function delta(m?: { value: number; previous: number | null }): number | null {
   return m.value - m.previous;
 }
 
+// Quick day-count buttons, kept alongside the "Custom" calendar picker for
+// arbitrary ranges.
+const QUICK_DAY_OPTIONS = [1, 7, 30];
+const quickDayPreset = (d: number): DashboardRangePreset => ({ label: `${d}d`, days: d });
+
 export default function DashboardPage() {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
-  const [days, setDays] = useState(7);
+  // Calendar range (date-only) — the Dashboard reads continuous aggregates,
+  // so a wide window is cheap; defaults to the last 7 days.
+  const [now] = useState(() => new Date());
+  const [range, setRange] = useState<DashboardRange>(() =>
+    presetRange(quickDayPreset(7), DEFAULT_DASHBOARD_RANGE_LIMITS, now),
+  );
   const [filters, setFilters] = useState<DashboardFilters>(EMPTY_DASHBOARD_FILTERS);
   const [occDirection, setOccDirection] = useState<number | undefined>(undefined);
-  const granularity = days <= 2 ? "hour" : "day";
+
+  const limitsQuery = useLimits();
+  const rangeLimits: DashboardRangeLimits = useMemo(
+    () =>
+      limitsQuery.data
+        ? {
+            maxSpanDays: limitsQuery.data.dashboard_max_span_days,
+            retentionDays: limitsQuery.data.data_retention_days,
+          }
+        : DEFAULT_DASHBOARD_RANGE_LIMITS,
+    [limitsQuery.data],
+  );
+
+  const rangeSpanDays = useMemo(() => {
+    const s = fromDateStr(range.start);
+    const e = fromDateStr(range.end);
+    return s && e ? spanDays(s, e) : 1;
+  }, [range]);
+  const granularity = rangeSpanDays <= 2 ? "hour" : "day";
+
+  // The hour×day-of-week heatmap reads sparse under a short window, so it
+  // always requests at least 14 days even when the picked range is shorter —
+  // the other cards use the picked range exactly.
+  const heatmapRange = useMemo<DashboardRange>(() => {
+    if (rangeSpanDays >= 14) return range;
+    const e = fromDateStr(range.end);
+    if (!e) return range;
+    return { start: toDateStr(addDays(e, -13)), end: range.end };
+  }, [range, rangeSpanDays]);
+
+  function handleRangeChange(nextStart: string, nextEnd: string) {
+    setRange({ start: nextStart, end: nextEnd });
+  }
 
   const routes = useRoutes();
 
@@ -86,16 +139,16 @@ export default function DashboardPage() {
   );
   const singleRouteId = effectiveRouteIds.length === 1 ? effectiveRouteIds[0] : undefined;
 
-  const overview = useOverview(days, scope);
+  const overview = useOverview(range, scope);
   const alerts = useAlerts();
-  const trend = useOnTimeTrend(days, scope, granularity);
-  const heatmap = useHeatmap(Math.max(days, 14), scope);
-  const distribution = useDistribution(days, scope);
-  const scorecard = useOnTime(days, scope);
-  const worstStops = useWorstStops(days, scope, 10);
+  const trend = useOnTimeTrend(range, scope, granularity);
+  const heatmap = useHeatmap(heatmapRange, scope);
+  const distribution = useDistribution(range, scope);
+  const scorecard = useOnTime(range, scope);
+  const worstStops = useWorstStops(range, scope, 10);
   const frequency = useFrequency(scope);
   const scheduleFreq = useScheduleFrequency(singleRouteId);
-  const occupancy = useOccupancy(days, singleRouteId, occDirection);
+  const occupancy = useOccupancy(range, singleRouteId, occDirection);
 
   const routeName = (rid: string) =>
     sortedRoutes.find((r) => r.route_id === rid)?.short_name;
@@ -184,20 +237,31 @@ export default function DashboardPage() {
         <div className="flex flex-wrap items-center gap-3">
           <DashboardFilterMenu routes={sortedRoutes} filters={filters} onChange={setFilters} />
           <div className="flex items-center gap-1 text-sm">
-            {DAY_OPTIONS.map((d) => (
-              <button
-                key={d}
-                onClick={() => setDays(d)}
-                className={`rounded px-3 py-1 font-medium transition-colors ${
-                  days === d
-                    ? "bg-accent text-accent-ink"
-                    : "bg-card border border-line text-fg-muted hover:border-accent"
-                }`}
-              >
-                {d}d
-              </button>
-            ))}
+            {QUICK_DAY_OPTIONS.map((d) => {
+              const preset = quickDayPreset(d);
+              const active = isPresetActive(range.start, range.end, preset, rangeLimits, now);
+              return (
+                <button
+                  key={d}
+                  onClick={() => setRange(presetRange(preset, rangeLimits, now))}
+                  className={`rounded px-3 py-1 font-medium transition-colors ${
+                    active
+                      ? "bg-accent text-accent-ink"
+                      : "bg-card border border-line text-fg-muted hover:border-accent"
+                  }`}
+                >
+                  {d}d
+                </button>
+              );
+            })}
           </div>
+          <DashboardDateRangePicker
+            start={range.start}
+            end={range.end}
+            onChange={handleRangeChange}
+            limits={rangeLimits}
+            now={now}
+          />
         </div>
       </div>
 

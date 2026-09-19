@@ -135,8 +135,19 @@ function scopeParams(scope?: RouteScope): Record<string, string | undefined> {
   };
 }
 
-export function fetchOnTime(days = 7, scope?: RouteScope): Promise<OnTimeResponse> {
-  return apiFetch(withParams("/api/v1/stats/ontime", { days, ...scopeParams(scope) }));
+/** An absolute calendar-day window (`"YYYY-MM-DD"`, date-only) for the Dashboard's
+ *  analytics endpoints — see lib/dashboardDateRange.ts for how one is built. */
+export interface DashboardRange {
+  start: string;
+  end: string;
+}
+
+function rangeParams(range: DashboardRange): Record<string, string> {
+  return { start: range.start, end: range.end };
+}
+
+export function fetchOnTime(range: DashboardRange, scope?: RouteScope): Promise<OnTimeResponse> {
+  return apiFetch(withParams("/api/v1/stats/ontime", { ...rangeParams(range), ...scopeParams(scope) }));
 }
 
 export function fetchFrequency(scope?: RouteScope): Promise<FrequencyResponse> {
@@ -158,42 +169,42 @@ function withParams(base: string, params: Record<string, string | number | undef
   return query ? `${base}?${query}` : base;
 }
 
-export function fetchOverview(days = 7, scope?: RouteScope): Promise<OverviewResponse> {
-  return apiFetch(withParams("/api/v1/stats/overview", { days, ...scopeParams(scope) }));
+export function fetchOverview(range: DashboardRange, scope?: RouteScope): Promise<OverviewResponse> {
+  return apiFetch(withParams("/api/v1/stats/overview", { ...rangeParams(range), ...scopeParams(scope) }));
 }
 
 export function fetchOnTimeTrend(
-  days = 14,
+  range: DashboardRange,
   scope?: RouteScope,
   granularity: "hour" | "day" = "day",
 ): Promise<TrendResponse> {
   return apiFetch(
-    withParams("/api/v1/stats/ontime/trend", { days, granularity, ...scopeParams(scope) }),
+    withParams("/api/v1/stats/ontime/trend", { ...rangeParams(range), granularity, ...scopeParams(scope) }),
   );
 }
 
-export function fetchHeatmap(days = 30, scope?: RouteScope): Promise<HeatmapResponse> {
-  return apiFetch(withParams("/api/v1/stats/ontime/heatmap", { days, ...scopeParams(scope) }));
+export function fetchHeatmap(range: DashboardRange, scope?: RouteScope): Promise<HeatmapResponse> {
+  return apiFetch(withParams("/api/v1/stats/ontime/heatmap", { ...rangeParams(range), ...scopeParams(scope) }));
 }
 
-export function fetchDistribution(days = 7, scope?: RouteScope): Promise<DistributionResponse> {
-  return apiFetch(withParams("/api/v1/stats/delay/distribution", { days, ...scopeParams(scope) }));
+export function fetchDistribution(range: DashboardRange, scope?: RouteScope): Promise<DistributionResponse> {
+  return apiFetch(withParams("/api/v1/stats/delay/distribution", { ...rangeParams(range), ...scopeParams(scope) }));
 }
 
-export function fetchWorstStops(days = 14, scope?: RouteScope, limit = 15): Promise<WorstStopsResponse> {
-  return apiFetch(withParams("/api/v1/stats/stops/worst", { days, limit, ...scopeParams(scope) }));
+export function fetchWorstStops(range: DashboardRange, scope?: RouteScope, limit = 15): Promise<WorstStopsResponse> {
+  return apiFetch(withParams("/api/v1/stats/stops/worst", { ...rangeParams(range), limit, ...scopeParams(scope) }));
 }
 
-export function fetchServiceDelivery(days = 7, scope?: RouteScope): Promise<ServiceDeliveryResponse> {
-  return apiFetch(withParams("/api/v1/stats/service-delivery", { days, ...scopeParams(scope) }));
+export function fetchServiceDelivery(range: DashboardRange, scope?: RouteScope): Promise<ServiceDeliveryResponse> {
+  return apiFetch(withParams("/api/v1/stats/service-delivery", { ...rangeParams(range), ...scopeParams(scope) }));
 }
 
 export function fetchScheduleFrequency(routeId?: string): Promise<ScheduleFrequencyResponse> {
   return apiFetch(withParams("/api/v1/stats/frequency/schedule", { route_id: routeId }));
 }
 
-export function fetchOccupancy(days = 7, routeId?: string, direction?: number): Promise<OccupancyResponse> {
-  return apiFetch(withParams("/api/v1/stats/occupancy", { days, route_id: routeId, direction }));
+export function fetchOccupancy(range: DashboardRange, routeId?: string, direction?: number): Promise<OccupancyResponse> {
+  return apiFetch(withParams("/api/v1/stats/occupancy", { ...rangeParams(range), route_id: routeId, direction }));
 }
 
 export function fetchRidership(routeId?: string, months = 24): Promise<RidershipResponse> {

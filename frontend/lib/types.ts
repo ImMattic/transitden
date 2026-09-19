@@ -9,6 +9,7 @@ export interface LimitsResponse {
   vehicles_max_span_hours: number;
   historical_max_span_days: number;
   export_max_span_days: number;
+  dashboard_max_span_days: number;
   data_retention_days: number;
 }
 
@@ -114,6 +115,8 @@ export interface OnTimeRouteStats {
 
 export interface OnTimeResponse {
   period_days: number;
+  range_start?: string;
+  range_end?: string;
   routes: OnTimeRouteStats[];
   overall: { on_time_pct: number; avg_delay_seconds: number };
 }
@@ -198,6 +201,8 @@ export interface MetricWithDelta {
 
 export interface OverviewResponse {
   period_days: number;
+  range_start?: string;
+  range_end?: string;
   on_time_pct: MetricWithDelta;
   avg_delay_seconds: MetricWithDelta;
   delay_stddev_seconds: number;
@@ -220,6 +225,8 @@ export interface TrendPoint {
 
 export interface TrendResponse {
   period_days: number;
+  range_start?: string;
+  range_end?: string;
   granularity: string;
   route_id: string | null;
   points: TrendPoint[];
@@ -235,6 +242,8 @@ export interface HeatmapCell {
 
 export interface HeatmapResponse {
   period_days: number;
+  range_start?: string;
+  range_end?: string;
   route_id: string | null;
   cells: HeatmapCell[];
 }
@@ -248,6 +257,8 @@ export interface DistributionBin {
 
 export interface DistributionResponse {
   period_days: number;
+  range_start?: string;
+  range_end?: string;
   route_id: string | null;
   total: number;
   avg_delay_seconds: number;
@@ -266,6 +277,8 @@ export interface WorstStop {
 
 export interface WorstStopsResponse {
   period_days: number;
+  range_start?: string;
+  range_end?: string;
   route_id: string | null;
   stops: WorstStop[];
 }
@@ -280,6 +293,8 @@ export interface ServiceDeliveryRoute {
 
 export interface ServiceDeliveryResponse {
   period_days: number;
+  range_start?: string;
+  range_end?: string;
   observed_trips: number;
   scheduled_trips: number;
   delivered_pct: number;
@@ -327,6 +342,8 @@ export interface DirectionInfo {
 
 export interface OccupancyResponse {
   period_days: number;
+  range_start?: string;
+  range_end?: string;
   route_id: string | null;
   direction: number | null;
   reported: boolean;

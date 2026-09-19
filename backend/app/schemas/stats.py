@@ -23,6 +23,8 @@ class OverallOnTime(BaseModel):
 
 class OnTimeResponse(BaseModel):
     period_days: int
+    range_start: str | None = None
+    range_end: str | None = None
     routes: list[OnTimeRouteStats]
     overall: OverallOnTime
 

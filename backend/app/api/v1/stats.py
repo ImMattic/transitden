@@ -5,7 +5,7 @@ import asyncio
 import math
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -13,6 +13,7 @@ from sqlalchemy import ARRAY, String, bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
+from app.api.v1._date_range import resolve_range
 from app.api.v1._route_filter import resolve_route_ids
 from app.database import get_db
 from app.models.vehicle_position import VehiclePosition
@@ -49,7 +50,7 @@ _ONTIME_SQL = """
         sum(observations)::bigint                             AS observations,
         sum(delay_sum)::bigint                               AS delay_sum
     FROM trip_ontime_hourly
-    WHERE bucket >= :cutoff
+    WHERE bucket >= :start AND bucket < :end
       AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
     GROUP BY route_id
 """
@@ -61,17 +62,19 @@ async def ontime_performance(
     route_id: Annotated[str | None, Query()] = None,
     route_ids: Annotated[str | None, Query()] = None,
     modes: Annotated[str | None, Query()] = None,
-    days: Annotated[int, Query(ge=1, le=90)] = 7,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
 ) -> OnTimeResponse:
     rids = resolve_route_ids(route_id, route_ids, modes)
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    settings = get_settings()
+    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=7)
 
     result = await db.execute(
         text(_ONTIME_SQL).bindparams(
-            bindparam("cutoff"),
+            bindparam("start"), bindparam("end"),
             bindparam("route_ids", type_=ARRAY(String)),
         ),
-        {"cutoff": cutoff, "route_ids": rids},
+        {"start": rng.start_at, "end": rng.end_at, "route_ids": rids},
     )
     rows = result.all()
 
@@ -105,7 +108,9 @@ async def ontime_performance(
     overall_avg = round(total_delay_sum / total_obs, 1) if total_obs else 0.0
 
     return OnTimeResponse(
-        period_days=days,
+        period_days=rng.span_days,
+        range_start=rng.start.isoformat(),
+        range_end=rng.end.isoformat(),
         routes=route_stats,
         overall=OverallOnTime(on_time_pct=overall_pct, avg_delay_seconds=overall_avg),
     )

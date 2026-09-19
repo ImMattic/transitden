@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     export_max_span_days: int = 31
     historical_max_span_days: int = 7
     vehicles_max_span_hours: int = 72
+    # Dashboard analytics endpoints read continuous aggregates (pre-rolled
+    # rollups, not raw rows), so a wide window is cheap — this is a generous
+    # ceiling rather than a performance guard, sized to "about a year" so the
+    # calendar picker's "Last year" preset always fits.
+    dashboard_max_span_days: int = 366
     # How far back raw rows still exist.  Mirrors the retention policy created in
     # migration 002 (add_retention_policy, INTERVAL '365 days'); it is published
     # via /api/v1/meta/limits purely so date pickers can grey out days we know
@@ -99,6 +104,15 @@ class Settings(BaseSettings):
     # which blanks stops on the trip page and biases on-time stats optimistic.
     arrival_misassignment_min_delay_seconds: int = 600
     arrival_misassignment_max_gap_seconds: int = 60
+    # …and even then, only when the competing trip is nowhere in the feed.  Those
+    # two conditions cannot separate "our vehicle is really running trip Y" from
+    # "our vehicle is a whole headway late" — both put it in the same place at
+    # the same time — so the tie is broken on evidence outside the schedule: if
+    # another vehicle is out there reporting as Y, ours is not Y.  A trip counts
+    # as out there if the feed carried it within this many minutes of the
+    # sighting.  Wide enough to span an ordinary feed hiccup; narrow enough that
+    # yesterday's run of the same trip_id doesn't vouch for today's.
+    arrival_misassignment_active_window_minutes: int = 30
     # Two consecutive fixes further apart than this are not read as one
     # continuous movement, so no arrival is interpolated between them —
     # inventing a crossing time across a long feed dropout would be a guess,

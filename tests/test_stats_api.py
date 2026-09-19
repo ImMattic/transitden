@@ -258,25 +258,28 @@ async def test_ontime_overall_aggregates_all_routes(client, db_session):
     assert overall["avg_delay_seconds"] == pytest.approx(45.0)  # 9000 / 200
 
 
-async def test_ontime_days_default_is_7(client, db_session):
+async def test_ontime_default_range_is_7_days(client, db_session):
     with patch.object(db_session, "execute", _mock_execute([])):
         resp = await client.get("/api/v1/stats/ontime")
     assert resp.json()["period_days"] == 7
 
 
-async def test_ontime_days_param_accepted(client, db_session):
+async def test_ontime_start_end_params_accepted(client, db_session):
     with patch.object(db_session, "execute", _mock_execute([])):
-        resp = await client.get("/api/v1/stats/ontime?days=30")
-    assert resp.json()["period_days"] == 30
+        resp = await client.get("/api/v1/stats/ontime?start=2026-01-01&end=2026-01-30")
+    data = resp.json()
+    assert data["period_days"] == 30
+    assert data["range_start"] == "2026-01-01"
+    assert data["range_end"] == "2026-01-30"
 
 
-async def test_ontime_days_zero_rejected(client):
-    resp = await client.get("/api/v1/stats/ontime?days=0")
+async def test_ontime_start_after_end_rejected(client):
+    resp = await client.get("/api/v1/stats/ontime?start=2026-01-10&end=2026-01-01")
     assert resp.status_code == 422
 
 
-async def test_ontime_days_91_rejected(client):
-    resp = await client.get("/api/v1/stats/ontime?days=91")
+async def test_ontime_span_too_wide_rejected(client):
+    resp = await client.get("/api/v1/stats/ontime?start=2025-01-01&end=2026-01-05")
     assert resp.status_code == 422
 
 
