@@ -3,12 +3,15 @@ analytics endpoints (app/api/v1/_date_range.py). Pure function — no DB needed.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import HTTPException
 
 from app.api.v1._date_range import resolve_range
+
+_DENVER_TODAY = datetime.now(ZoneInfo("America/Denver")).date()
 
 
 def test_defaults_to_default_days_ending_today():
@@ -34,9 +37,9 @@ def test_missing_start_derives_from_end_and_default_days():
 
 
 def test_future_end_clamped_to_today():
-    far_future = date.today() + timedelta(days=365)
+    far_future = _DENVER_TODAY + timedelta(days=365)
     rng = resolve_range(None, far_future, max_span_days=366, default_days=7)
-    assert rng.end == date.today()
+    assert rng.end == _DENVER_TODAY
 
 
 def test_start_after_end_rejected():
