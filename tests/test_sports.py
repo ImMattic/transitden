@@ -106,29 +106,70 @@ def test_team_matched_by_name_not_abbreviation():
 
 
 def test_final_game_records_result_and_end_time():
-    event = espn_event(
+    live = espn_event(state="in")
+    final = espn_event(
         state="post", short_detail="Final", home_score="4", away_score="2", winner="home"
     )
 
-    slide = sports._parse_event(event, AVS, NOW)
+    # Having watched the game live is what lets the transition to "post" be
+    # trusted as the real end time -- see the continuity note on _seen_live.
+    sports._parse_event(live, AVS, NOW - timedelta(minutes=1))
+    slide = sports._parse_event(final, AVS, NOW)
 
     assert slide is not None
     assert slide.state == "post"
     assert slide.result == "win"
     assert (slide.team_score, slide.opponent_score) == (4, 2)
-    # ESPN never says when a game ended, so the first poll that saw it final is
-    # the end time we keep.
     assert slide.end == NOW
 
 
 def test_end_time_is_pinned_to_first_sighting_not_the_latest_poll():
-    event = espn_event(state="post", short_detail="Final", home_score="4", away_score="2")
+    live = espn_event(state="in")
+    final = espn_event(state="post", short_detail="Final", home_score="4", away_score="2")
 
-    first = sports._parse_event(event, AVS, NOW)
-    later = sports._parse_event(event, AVS, NOW + timedelta(minutes=30))
+    sports._parse_event(live, AVS, NOW - timedelta(minutes=1))
+    first = sports._parse_event(final, AVS, NOW)
+    later = sports._parse_event(final, AVS, NOW + timedelta(minutes=30))
 
     assert first is not None and later is not None
     assert later.end == NOW, "the game didn't end again just because we polled again"
+
+
+def test_a_cold_start_never_trusts_now_even_when_the_timing_looks_plausible():
+    """A process that never watched the game live must not stamp "now".
+
+    Regression: the first fix here only rejected "now" when it was far past a
+    typical game length, which still meant a cold start (a fresh process, or
+    local dev's autoreload) picking up a game that finished, say, an hour ago
+    would show it as ending "just now" -- an hour looks perfectly plausible
+    for a game's length, so a time-based check alone can't catch it. What
+    actually distinguishes "we just watched it end" from "we have no idea
+    when it ended" is continuity: did we ever see this event "in" progress?
+    """
+    final = espn_event(state="post", short_detail="Final", home_score="4", away_score="2")
+
+    # No prior "in" sighting for this event -- first thing we ever see is it
+    # already final, an hour after a plausible start.
+    cold_start = sports._parse_event(final, AVS, NOW + timedelta(hours=1))
+
+    assert cold_start is not None
+    assert cold_start.end is None
+    # end_time() falls back to the start+typical_minutes estimate instead.
+    assert sports.end_time(cold_start) == cold_start.start + timedelta(
+        minutes=AVS.typical_minutes
+    )
+
+
+def test_watching_a_game_live_is_what_earns_trust_in_the_final_reading():
+    """The positive case: continuity lets a normal live poll work as before."""
+    live = espn_event(state="in")
+    final = espn_event(state="post", short_detail="Final", home_score="4", away_score="2")
+
+    sports._parse_event(live, AVS, NOW)
+    slide = sports._parse_event(final, AVS, NOW + timedelta(seconds=30))
+
+    assert slide is not None
+    assert slide.end == NOW + timedelta(seconds=30)
 
 
 def test_result_falls_back_to_the_scoreline_without_a_winner_flag():

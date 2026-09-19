@@ -178,14 +178,37 @@ def _teams_by_path() -> dict[str, list[TeamConfig]]:
 
 # ── Observed end times ─────────────────────────────────────────────────────
 # ESPN reports that a game is final but not *when* it went final, and "COL won
-# 20 min ago" needs that.  So note the first poll at which each event showed up
-# completed.  Lost on restart, which only costs us a fall back to the
-# start+typical_minutes estimate for games already over at that moment.
+# 20 min ago" needs that.  So we time it ourselves -- but only by watching a
+# game actually finish, never by guessing from a single "it's final" reading.
+#
+# _seen_live records every event we've caught in "in" progress at least once
+# this process's lifetime.  _final_seen then only accepts "now" as the real
+# end time for an event that's *in* _seen_live -- i.e. we were polling while
+# it played and are now catching the transition to final within one poll
+# interval, so "now" is genuinely close to the real end.
+#
+# An event that shows up already "final" on the very first poll we ever make
+# for it -- a fresh process, or local dev's autoreload restarting mid-game --
+# never earns that continuity, no matter how recently it might actually have
+# ended: without having watched it live there's no reliable way to tell "it
+# finished a minute ago" from "it finished three hours ago", so we don't
+# guess "now" for either.  end_time() falls back to the start+typical_minutes
+# estimate instead, which needs no memory and is stable across restarts.
+#
+# Both sets are held only in memory and lost on restart, which just means a
+# game already in progress at boot has to earn its "now" timestamp again from
+# that point rather than starting with false confidence.
+_seen_live: set[str] = set()
 _final_seen: dict[str, datetime] = {}
 
 
-def _record_final(event_id: str, now: datetime) -> datetime:
-    return _final_seen.setdefault(event_id, now)
+def _record_final(event_id: str, now: datetime) -> datetime | None:
+    if event_id in _final_seen:
+        return _final_seen[event_id]
+    if event_id not in _seen_live:
+        return None
+    _final_seen[event_id] = now
+    return now
 
 
 # ── Cache ──────────────────────────────────────────────────────────────────
@@ -205,6 +228,7 @@ def reset_caches() -> None:
     _cache = None
     _league_cache.clear()
     _final_seen.clear()
+    _seen_live.clear()
 
 
 # ── Parsing ────────────────────────────────────────────────────────────────
@@ -276,6 +300,10 @@ def _parse_event(event: dict, team: TeamConfig, now: datetime) -> GameSlide | No
     if start is None:
         return None
 
+    event_id = str(event.get("id") or comp.get("id") or start.isoformat())
+    if state == "in":
+        _seen_live.add(event_id)
+
     home_info = home.get("team") or {}
     away_info = away.get("team") or {}
     team_abbr, team_name = _competitor_label(home_info, team.abbr, team.name)
@@ -287,7 +315,7 @@ def _parse_event(event: dict, team: TeamConfig, now: datetime) -> GameSlide | No
     end: datetime | None = None
     result = None
     if state == "post":
-        end = _record_final(str(event.get("id") or comp.get("id") or start.isoformat()), now)
+        end = _record_final(event_id, now)
         if home.get("winner") is True:
             result = "win"
         elif away.get("winner") is True:
