@@ -14,6 +14,8 @@ import pytest
 
 from app.api.v1.vehicles import (
     _build_facets,
+    _delay_map,
+    _delay_window,
     _describe_trip,
     _matches_filters,
     _mode_of,
@@ -353,3 +355,33 @@ async def test_negative_duration_is_rejected(client):
         "/api/v1/vehicles/active", params={"min_duration_minutes": -5}
     )
     assert resp.status_code == 422
+
+
+def _span(start: datetime, end: datetime) -> dict:
+    return {"start_time": start.isoformat(), "end_time": end.isoformat()}
+
+
+def test_delay_window_hugs_the_page_trips_not_the_padded_scan_window():
+    floor, ceil = NOW - timedelta(hours=10), NOW + timedelta(hours=10)
+    page = [
+        _span(NOW - timedelta(hours=2), NOW - timedelta(hours=1)),
+        _span(NOW - timedelta(hours=1, minutes=30), NOW),
+    ]
+    lo, hi = _delay_window(page, floor, ceil)
+    assert lo == NOW - timedelta(hours=2, minutes=5)
+    assert hi == NOW + timedelta(minutes=5)
+
+
+def test_delay_window_never_exceeds_the_scan_window():
+    floor, ceil = NOW - timedelta(hours=1), NOW
+    page = [_span(NOW - timedelta(hours=1), NOW)]
+    assert _delay_window(page, floor, ceil) == (floor, ceil)
+
+
+def test_delay_window_of_an_empty_page_is_the_scan_window():
+    floor, ceil = NOW - timedelta(hours=1), NOW
+    assert _delay_window([], floor, ceil) == (floor, ceil)
+
+
+async def test_delay_map_of_no_trips_is_empty(db_session):
+    assert await _delay_map(db_session, NOW - timedelta(hours=1), NOW, {}) == {}
