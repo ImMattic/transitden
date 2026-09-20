@@ -8,6 +8,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import get_settings
 from app.services.ingestion import ingest_cycle
+from app.services.leader import is_ingest_leader
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +17,14 @@ _settings = get_settings()
 scheduler = AsyncIOScheduler(timezone="UTC")
 
 
+async def _ingest_if_leader() -> None:
+    if await is_ingest_leader():
+        await ingest_cycle()
+
+
 def start_scheduler() -> None:
     scheduler.add_job(
-        ingest_cycle,
+        _ingest_if_leader,
         trigger=IntervalTrigger(seconds=_settings.polling_interval_seconds),
         id="gtfs_rt_ingest",
         replace_existing=True,
