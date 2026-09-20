@@ -338,8 +338,9 @@ async def get_active_vehicles(
 
     # last_delay_seconds isn't filterable, so it's the one field still looked
     # up only for the rows actually being returned.
-    page_trip_ids = {t["trip_id"] for t in page if t["trip_id"]}
-    delay_map = await _delay_map(db, scan_start, scan_end, page_trip_ids)
+    page_trip_routes = {t["trip_id"]: t["route_id"] for t in page if t["trip_id"]}
+    delay_start, delay_end = _delay_window(page, scan_start, scan_end)
+    delay_map = await _delay_map(db, delay_start, delay_end, page_trip_routes)
     for t in page:
         t["last_delay_seconds"] = delay_map.get(t["trip_id"] or "")
 
@@ -844,22 +845,54 @@ def _service_day_anchor(
     return best
 
 
+_DELAY_WINDOW_MARGIN = timedelta(minutes=5)
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def _delay_window(
+    page: list[dict], floor: datetime, ceil: datetime
+) -> tuple[datetime, datetime]:
+    """The span the page's own trips cover, clamped to the scan window.
+
+    The scan window is padded 3h each side to catch a trip's full extent, but
+    the page's trips only need their own first-to-last position.
+    """
+    if not page:
+        return floor, ceil
+    first = min(_aware(datetime.fromisoformat(t["start_time"])) for t in page)
+    last = max(_aware(datetime.fromisoformat(t["end_time"])) for t in page)
+    return (
+        max(first - _DELAY_WINDOW_MARGIN, floor),
+        min(last + _DELAY_WINDOW_MARGIN, ceil),
+    )
+
+
 async def _delay_map(
     db: AsyncSession,
     start: datetime,
     end: datetime,
-    trip_ids: set[str],
+    trip_routes: dict[str, str | None],
 ) -> dict[str, int]:
-    if not trip_ids:
+    if not trip_routes:
         return {}
+    conditions = [
+        TripUpdate.trip_id.in_(set(trip_routes)),
+        TripUpdate.timestamp >= start,
+        TripUpdate.timestamp <= end,
+        TripUpdate.arrival_delay.is_not(None),
+    ]
+    # Chunks older than a day are compressed and segmented by route_id, and the
+    # trip_id index only exists on uncompressed ones. Without a route predicate a
+    # trip_id lookup decompresses every route's rows for the whole window, which
+    # blew the statement timeout on yesterday's data.
+    if all(trip_routes.values()):
+        conditions.append(TripUpdate.route_id.in_(set(trip_routes.values())))
     stmt = (
         select(TripUpdate.trip_id, TripUpdate.arrival_delay)
-        .where(
-            TripUpdate.trip_id.in_(trip_ids),
-            TripUpdate.timestamp >= start,
-            TripUpdate.timestamp <= end,
-            TripUpdate.arrival_delay.is_not(None),
-        )
+        .where(*conditions)
         .order_by(TripUpdate.trip_id, TripUpdate.timestamp.desc())
         .distinct(TripUpdate.trip_id)
     )
