@@ -1,6 +1,10 @@
 """Vehicle drill-down: active vehicles for a time window + per-vehicle trip detail."""
 from __future__ import annotations
 
+import asyncio
+import time as _time
+from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from datetime import datetime, time, timedelta, timezone
 from typing import Annotated
 from zoneinfo import ZoneInfo
@@ -194,62 +198,81 @@ def _validated_choice(raw: str | None, allowed: set[str], name: str) -> set[str]
     return values
 
 
-@router.get("/active")
-async def get_active_vehicles(
-    db: Annotated[AsyncSession, Depends(get_db)],
-    start: Annotated[datetime | None, Query()] = None,
-    end: Annotated[datetime | None, Query()] = None,
-    route_id: Annotated[str | None, Query()] = None,
-    route_ids: Annotated[str | None, Query()] = None,
-    modes: Annotated[str | None, Query()] = None,
-    vehicle_labels: Annotated[str | None, Query()] = None,
-    status: Annotated[str | None, Query()] = None,
-    occupancy: Annotated[str | None, Query()] = None,
-    min_duration_minutes: Annotated[float | None, Query(ge=0)] = None,
-    max_duration_minutes: Annotated[float | None, Query(ge=0)] = None,
-    min_avg_delay_seconds: Annotated[float | None, Query()] = None,
-    max_avg_delay_seconds: Annotated[float | None, Query()] = None,
-    min_on_time_pct: Annotated[float | None, Query(ge=0, le=100)] = None,
-    max_on_time_pct: Annotated[float | None, Query(ge=0, le=100)] = None,
-    strict: Annotated[bool, Query()] = False,
-    limit: Annotated[int, Query(ge=1, le=100)] = 15,
-    offset: Annotated[int, Query(ge=0, le=5_000)] = 0,
-) -> dict:
-    """Trips whose start or end falls within [start, end].
+# Computed windows, per worker process.  One entry is every trip in a window
+# (~10 MB at the 72 h ceiling), so the count is capped rather than the age.
+_WINDOW_CACHE_MAX = 8
+_STABLE_MARGIN = timedelta(minutes=10)
 
-    A *trip* is one ``(vehicle_label, trip_id)`` leg.  We scan a window padded
-    by ``_MAX_TRIP_DURATION`` on each side so a trip's full extent
-    (first→last position) is captured even when it begins before / ends after
-    the requested window, then keep only trips whose start or end timestamp is
-    actually inside ``[start, end]``.
+_window_cache: OrderedDict[tuple, tuple[float, list[dict], dict]] = OrderedDict()
+_window_locks: dict[tuple, asyncio.Lock] = {}
 
-    When ``strict`` is true, only trips that lie *entirely* within
-    ``[start, end]`` are kept — both start and end must fall inside the window,
-    so a trip that begins before or runs past the window is excluded.
 
-    Quality filter (same criteria as before) is applied in SQL:
-    observation_count >= 10 AND stop_arrival_count > 1.
+def _window_ttl(end: datetime, now: datetime) -> float:
+    """Seconds a window ending at ``end`` may be reused.
 
-    Everything after that is a *filter*, and every one of them is applied before
-    paging, so page 2 means the second page of matches rather than the second
-    page of the window with the filter re-run on it.  The comma-separated
-    parameters (``route_ids``, ``modes``, ``vehicle_labels``, ``status``,
-    ``occupancy``) each OR within themselves and AND with the others; an omitted
-    one doesn't narrow anything.  ``facets`` in the response counts the window
-    *before* those filters, so the menu's per-option numbers hold still while
-    someone is choosing — with one exception it flags as ``route_scoped``, since
-    the route restriction is the only filter that runs in SQL.
+    Trips are read out to ``_MAX_TRIP_DURATION`` past ``end``, so until that has
+    elapsed a trip can still be growing and the window has to stay fresh.
     """
-    start, end = _validated_range(start, end, default_span=timedelta(hours=1))
+    if end + _MAX_TRIP_DURATION + _STABLE_MARGIN < now:
+        return _settings.active_vehicles_cache_stable_seconds
+    return _settings.active_vehicles_cache_live_seconds
 
-    wanted_routes = set(_split_csv(route_ids))
-    if route_id:
-        wanted_routes.add(route_id)
-    wanted_modes = _validated_choice(modes, _MODES, "modes")
-    wanted_labels = set(_split_csv(vehicle_labels))
-    wanted_statuses = _validated_choice(status, _TRIP_STATUSES, "status")
-    wanted_occupancy = set(_split_csv(occupancy))
 
+def _cache_get(key: tuple) -> tuple[list[dict], dict] | None:
+    entry = _window_cache.get(key)
+    if entry is None:
+        return None
+    expires_at, trips, facets = entry
+    if expires_at <= _time.monotonic():
+        del _window_cache[key]
+        return None
+    _window_cache.move_to_end(key)
+    return trips, facets
+
+
+def _cache_put(key: tuple, ttl: float, trips: list[dict], facets: dict) -> None:
+    _window_cache[key] = (_time.monotonic() + ttl, trips, facets)
+    _window_cache.move_to_end(key)
+    while len(_window_cache) > _WINDOW_CACHE_MAX:
+        _window_cache.popitem(last=False)
+
+
+async def _cached_window(
+    key: tuple,
+    ttl: float,
+    build: Callable[[], Awaitable[tuple[list[dict], dict]]],
+) -> tuple[list[dict], dict]:
+    """``build()``'s result, reused for ``ttl`` seconds.
+
+    Concurrent callers for the same window share one build: paging quickly, or
+    two people opening the same range, would otherwise each pay for the scan.
+    A failed build is not cached.
+    """
+    if ttl <= 0:
+        return await build()
+    if (hit := _cache_get(key)) is not None:
+        return hit
+    lock = _window_locks.setdefault(key, asyncio.Lock())
+    try:
+        async with lock:
+            if (hit := _cache_get(key)) is not None:
+                return hit
+            trips, facets = await build()
+            _cache_put(key, ttl, trips, facets)
+            return trips, facets
+    finally:
+        if not lock.locked():
+            _window_locks.pop(key, None)
+
+
+async def _build_window(
+    db: AsyncSession,
+    start: datetime,
+    end: datetime,
+    wanted_routes: set[str],
+    strict: bool,
+) -> tuple[list[dict], dict]:
+    """Every trip in [start, end] with its delay stats, plus the window's facets."""
     scan_start = start - _MAX_TRIP_DURATION
     scan_end = end + _MAX_TRIP_DURATION
 
@@ -314,6 +337,75 @@ async def get_active_vehicles(
     # describe only the selected routes.  Say so, rather than letting a menu
     # read those counts as if they covered the window.
     facets = _build_facets(trips, route_scoped=bool(route_clause))
+    return trips, facets
+
+
+@router.get("/active")
+async def get_active_vehicles(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    start: Annotated[datetime | None, Query()] = None,
+    end: Annotated[datetime | None, Query()] = None,
+    route_id: Annotated[str | None, Query()] = None,
+    route_ids: Annotated[str | None, Query()] = None,
+    modes: Annotated[str | None, Query()] = None,
+    vehicle_labels: Annotated[str | None, Query()] = None,
+    status: Annotated[str | None, Query()] = None,
+    occupancy: Annotated[str | None, Query()] = None,
+    min_duration_minutes: Annotated[float | None, Query(ge=0)] = None,
+    max_duration_minutes: Annotated[float | None, Query(ge=0)] = None,
+    min_avg_delay_seconds: Annotated[float | None, Query()] = None,
+    max_avg_delay_seconds: Annotated[float | None, Query()] = None,
+    min_on_time_pct: Annotated[float | None, Query(ge=0, le=100)] = None,
+    max_on_time_pct: Annotated[float | None, Query(ge=0, le=100)] = None,
+    strict: Annotated[bool, Query()] = False,
+    limit: Annotated[int, Query(ge=1, le=100)] = 15,
+    offset: Annotated[int, Query(ge=0, le=5_000)] = 0,
+) -> dict:
+    """Trips whose start or end falls within [start, end].
+
+    A *trip* is one ``(vehicle_label, trip_id)`` leg.  We scan a window padded
+    by ``_MAX_TRIP_DURATION`` on each side so a trip's full extent
+    (first→last position) is captured even when it begins before / ends after
+    the requested window, then keep only trips whose start or end timestamp is
+    actually inside ``[start, end]``.
+
+    When ``strict`` is true, only trips that lie *entirely* within
+    ``[start, end]`` are kept — both start and end must fall inside the window,
+    so a trip that begins before or runs past the window is excluded.
+
+    Quality filter (same criteria as before) is applied in SQL:
+    observation_count >= 10 AND stop_arrival_count > 1.
+
+    Everything after that is a *filter*, and every one of them is applied before
+    paging, so page 2 means the second page of matches rather than the second
+    page of the window with the filter re-run on it.  The comma-separated
+    parameters (``route_ids``, ``modes``, ``vehicle_labels``, ``status``,
+    ``occupancy``) each OR within themselves and AND with the others; an omitted
+    one doesn't narrow anything.  ``facets`` in the response counts the window
+    *before* those filters, so the menu's per-option numbers hold still while
+    someone is choosing — with one exception it flags as ``route_scoped``, since
+    the route restriction is the only filter that runs in SQL.
+    """
+    end_given = end is not None
+    start, end = _validated_range(start, end, default_span=timedelta(hours=1))
+
+    wanted_routes = set(_split_csv(route_ids))
+    if route_id:
+        wanted_routes.add(route_id)
+    wanted_modes = _validated_choice(modes, _MODES, "modes")
+    wanted_labels = set(_split_csv(vehicle_labels))
+    wanted_statuses = _validated_choice(status, _TRIP_STATUSES, "status")
+    wanted_occupancy = set(_split_csv(occupancy))
+
+    now = datetime.now(tz=timezone.utc)
+    # A window with no explicit end is anchored to "now", so it never repeats.
+    ttl = _window_ttl(end, now) if end_given else 0
+    key = (start, end, strict, tuple(sorted(wanted_routes)))
+    trips, facets = await _cached_window(
+        key, ttl, lambda: _build_window(db, start, end, wanted_routes, strict)
+    )
+    scan_start = start - _MAX_TRIP_DURATION
+    scan_end = end + _MAX_TRIP_DURATION
 
     matches = [
         t
@@ -334,7 +426,7 @@ async def get_active_vehicles(
         )
     ]
 
-    page = matches[offset:offset + limit]
+    page = [dict(t) for t in matches[offset:offset + limit]]
 
     # last_delay_seconds isn't filterable, so it's the one field still looked
     # up only for the rows actually being returned.
