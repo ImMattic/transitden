@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.models.vehicle_position import VehiclePosition
-from app.models.trip_update import TripUpdate
 from app.schemas.vehicle_position import VehiclePositionHistoryOut
 from app.services.gtfs_decoder import load_gtfs_static_data
+from app.api.v1.vehicles import _MAX_TRIP_DURATION, _aware, _delay_map
 
 router = APIRouter(prefix="/historical", tags=["historical"])
 
@@ -74,8 +74,13 @@ async def get_historical_vehicles(
     # Enrich with static route names and most-recent delays. Only look up delays
     # for the trip_ids actually on this page — not the whole (up to 1-year) range.
     routes_static, _ = load_gtfs_static_data()
-    page_trip_ids = {r.trip_id for r in rows if r.trip_id}
-    delay_map = await _delay_map(db, start, end, page_trip_ids)
+    page_trip_routes = {r.trip_id: r.route_id for r in rows if r.trip_id}
+    delay_start, delay_end = start, end
+    if rows:
+        stamps = [_aware(r.timestamp) for r in rows]
+        delay_start = max(min(stamps) - _MAX_TRIP_DURATION, start)
+        delay_end = min(max(stamps) + _MAX_TRIP_DURATION, end)
+    delay_map = await _delay_map(db, delay_start, delay_end, page_trip_routes)
 
     vehicles = [
         VehiclePositionHistoryOut(
@@ -122,34 +127,3 @@ async def get_historical_vehicles(
         "vehicles": [v.model_dump() for v in vehicles],
     }
 
-
-async def _delay_map(
-    db: AsyncSession,
-    start: datetime,
-    end: datetime,
-    trip_ids: set[str],
-) -> dict[str, int]:
-    """Latest non-null arrival_delay (seconds) keyed by trip_id, for the given trips.
-
-    Scoped to the page's trip_ids (uses ``ix_tu_trip_ts``) rather than scanning
-    the whole date range. Uses ``DISTINCT ON`` to take the latest row per trip.
-    """
-    if not trip_ids:
-        return {}
-    stmt = (
-        select(TripUpdate.trip_id, TripUpdate.arrival_delay)
-        .where(
-            TripUpdate.trip_id.in_(trip_ids),
-            TripUpdate.timestamp >= start,
-            TripUpdate.timestamp <= end,
-            TripUpdate.arrival_delay.is_not(None),
-        )
-        .order_by(TripUpdate.trip_id, TripUpdate.timestamp.desc())
-        .distinct(TripUpdate.trip_id)
-    )
-    result = await db.execute(stmt)
-    return {
-        trip_id: delay
-        for trip_id, delay in result.all()
-        if trip_id is not None
-    }

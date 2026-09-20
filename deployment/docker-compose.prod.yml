@@ -48,6 +48,8 @@ services:
       GTFS_RT_TRIP_URL: https://www.rtd-denver.com/files/gtfs-rt/TripUpdate.pb
       POLLING_INTERVAL_SECONDS: "10"
       STUCK_VEHICLE_MINUTES: "5"
+      # Two vCPUs; only one worker ingests (see services/leader.py).
+      UVICORN_WORKERS: "2"
       # SPORTS_SIM_PASSWORD is deliberately absent here (unlike staging).
       # Unset means the /sim routes 404 outright — a fake game on the real
       # live map would be a lie. Do not add this var to prod's .env.
