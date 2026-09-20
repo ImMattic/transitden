@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     export_max_span_days: int = 31
     historical_max_span_days: int = 7
     vehicles_max_span_hours: int = 72
+    # How long the Trip Explorer's computed window (every trip in [start, end])
+    # is reused, so paging and re-sorting don't repeat the scan. A window whose
+    # trips can still be growing gets the short one; one that ended long enough
+    # ago for every trip to be finished gets the long one. 0 disables caching.
+    active_vehicles_cache_live_seconds: int = 30
+    active_vehicles_cache_stable_seconds: int = 600
     # Dashboard analytics endpoints read continuous aggregates (pre-rolled
     # rollups, not raw rows), so a wide window is cheap — this is a generous
     # ceiling rather than a performance guard, sized to "about a year" so the
