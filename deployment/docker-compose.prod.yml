@@ -3,18 +3,19 @@ services:
     image: timescale/timescaledb:latest-pg16
     container_name: transitden-db
     restart: unless-stopped
-    # Same tuning as staging — adjust to the prod VM's actual specs if it
-    # differs from the ~4 GB staging box. See docker-compose.yml.
+    # Tuned for the 12 GB / 2 vCPU prod VM. The container limit below also caps
+    # the kernel's file cache for the data files, so it has to leave room for
+    # effective_cache_size, not just shared_buffers.
     command:
       - "postgres"
       - "-c"
-      - "shared_buffers=768MB"
+      - "shared_buffers=2GB"
       - "-c"
-      - "effective_cache_size=2GB"
+      - "effective_cache_size=6GB"
       - "-c"
-      - "work_mem=16MB"
+      - "work_mem=32MB"
       - "-c"
-      - "maintenance_work_mem=128MB"
+      - "maintenance_work_mem=512MB"
       - "-c"
       - "max_connections=50"
     environment:
@@ -31,9 +32,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1536M
+          memory: 8G
         reservations:
-          memory: 768M
+          memory: 2G
 
   backend:
     image: aggiematt/transitden-backend:latest
@@ -59,7 +60,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024M
+          memory: 2G
 
   frontend:
     image: aggiematt/transitden-frontend:latest
