@@ -76,6 +76,11 @@ class Settings(BaseSettings):
 
     # ── Alert thresholds ─────────────────────────────────────────────────────
     stuck_vehicle_minutes: int = 12
+    # A stationary vehicle only counts as stuck when it is within this many
+    # metres of its route's drawn shape. Vehicles idling in a yard or garage
+    # with their transponders on report a fix that never moves, but it sits well
+    # off the route line — that's not a service problem.
+    stuck_route_max_distance_m: int = 50
 
     # ── On-time performance (observed position vs. static schedule) ──────────
     # A vehicle counts as "arrived" at a timepoint when within this many metres

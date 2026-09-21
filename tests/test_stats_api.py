@@ -42,6 +42,18 @@ def _naive_now():
         yield
 
 
+# A short east-west line through the default make_vehicle() position
+# (39.7392, -104.9903): the vehicle is sitting right on its route.
+_ON_ROUTE = [[[39.7392, -104.9913], [39.7392, -104.9893]]]
+# The same kind of line ~550 m to the north: the vehicle is nowhere near it.
+_OFF_ROUTE = [[[39.7442, -104.9913], [39.7442, -104.9893]]]
+
+
+def _route_shapes(shapes):
+    """Patch the route-shape lookup the alert endpoint uses."""
+    return patch("app.api.v1.stats.shapes_for_route", return_value=shapes)
+
+
 # ── /stats/alerts ─────────────────────────────────────────────────────────────
 
 async def test_alerts_empty_db(client):
@@ -69,13 +81,61 @@ async def test_alerts_detects_stuck_vehicle(client, db_session):
         )
     await db_session.flush()
 
-    with _naive_now():
+    with _naive_now(), _route_shapes(_ON_ROUTE):
         resp = await client.get("/api/v1/stats/alerts")
     assert resp.status_code == 200
     alerts = resp.json()["alerts"]
     assert len(alerts) == 1
     assert alerts[0]["vehicle_id"] == "V1"
     assert alerts[0]["minutes_stuck"] >= 12
+
+
+async def _add_stationary_vehicle(db_session):
+    now = _dt_class.now(timezone.utc).replace(tzinfo=None)
+    for i in range(5):
+        db_session.add(
+            make_vehicle(
+                id=i + 1,
+                vehicle_id="V1",
+                lat=39.7392,
+                lon=-104.9903,
+                current_status=2,  # IN_TRANSIT_TO
+                timestamp=now - timedelta(minutes=20 - i * 2),
+            )
+        )
+    await db_session.flush()
+
+
+async def test_alerts_skips_stationary_vehicle_off_route(client, db_session):
+    """A vehicle idling in the yard with its transponder on reports a steady
+    position, but nowhere near its route's shape — parked, not stuck."""
+    await _add_stationary_vehicle(db_session)
+
+    with _naive_now(), _route_shapes(_OFF_ROUTE):
+        resp = await client.get("/api/v1/stats/alerts")
+    assert resp.json()["alerts"] == []
+
+
+async def test_alerts_skips_vehicle_on_route_without_known_shape(client, db_session):
+    """No shape for the route means we can't show the vehicle is on it, so it
+    must not alert (a blank route_id from the feed lands here too)."""
+    await _add_stationary_vehicle(db_session)
+
+    with _naive_now(), _route_shapes([]):
+        resp = await client.get("/api/v1/stats/alerts")
+    assert resp.json()["alerts"] == []
+
+
+async def test_alerts_on_route_tolerance_is_configurable(client, db_session, monkeypatch):
+    """The ~550 m-off vehicle alerts once the tolerance is opened past that."""
+    from app.config import get_settings
+
+    await _add_stationary_vehicle(db_session)
+    monkeypatch.setattr(get_settings(), "stuck_route_max_distance_m", 1000)
+
+    with _naive_now(), _route_shapes(_OFF_ROUTE):
+        resp = await client.get("/api/v1/stats/alerts")
+    assert len(resp.json()["alerts"]) == 1
 
 
 async def test_alerts_skips_stopped_at_status(client, db_session):
@@ -172,7 +232,7 @@ async def test_alerts_skips_endpoint_stop(client, db_session):
         "STOP_FIRST": {"stop_lat": 39.0, "stop_lon": -105.0},  # far away
         "STOP_LAST": {"stop_lat": 39.7392, "stop_lon": -104.9903},  # at vehicle
     }
-    with _naive_now(), patch(
+    with _naive_now(), _route_shapes(_ON_ROUTE), patch(
         "app.api.v1.stats.load_gtfs_static_data", return_value=({}, mock_stops)
     ):
         resp = await client.get("/api/v1/stats/alerts")
@@ -206,7 +266,7 @@ async def test_alerts_skips_endpoint_stop_route_fallback(client, db_session):
     mock_stops = {
         "CIVIC_CENTER": {"stop_lat": 39.7392, "stop_lon": -104.9903},
     }
-    with _naive_now(), patch(
+    with _naive_now(), _route_shapes(_ON_ROUTE), patch(
         "app.api.v1.stats.load_gtfs_static_data", return_value=({}, mock_stops)
     ):
         resp = await client.get("/api/v1/stats/alerts")
