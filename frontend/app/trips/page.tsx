@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useActiveVehicles, useLimits, useRoutes, useVehicles } from "@/lib/hooks";
 import { ApiError } from "@/lib/api";
@@ -10,6 +10,7 @@ import TripStatusBadge from "@/components/ui/TripStatusBadge";
 import DateRangePicker from "@/components/ui/DateRangePicker";
 import TripFilterMenu from "@/components/trips/TripFilterMenu";
 import { ActiveFilterChip, FilterIcon } from "@/components/ui/FilterControls";
+import SortIcon from "@/components/ui/SortIcon";
 import {
   cn,
   computeTripStatus,
@@ -29,6 +30,15 @@ import {
   tripFiltersToQuery,
   type TripFilters,
 } from "@/lib/tripFilters";
+import {
+  effectiveTripSort,
+  nextTripSort,
+  tripSortFromParams,
+  tripSortToParams,
+  tripSortToQuery,
+  type TripSort,
+  type TripSortKey,
+} from "@/lib/tripSort";
 import {
   DEFAULT_RANGE_LIMITS,
   fromLocalInput,
@@ -82,6 +92,64 @@ function formatDuration(minutes: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
+// Column widths, shared by each <th> and its <td>s (table-fixed reads them off
+// the header row). Every sortable column carries ~16px beyond what its content
+// needs so the ▲/▼ never crowds the label into the neighbouring column.
+const COL = {
+  status: "w-8 sm:w-10",
+  route: "w-[72px] sm:w-20",
+  vehicle: "w-20 sm:w-24",
+  start: "w-24 sm:w-28",
+  end: "w-24 sm:w-28",
+  duration: "w-20 sm:w-24",
+  occupancy: "w-[120px] sm:w-[152px]",
+  delay: "w-[88px] sm:w-[104px]",
+  onTime: "w-20 sm:w-24",
+} as const;
+
+/** A column header that re-sorts the table. The whole cell is one button, so
+ *  it is reachable by keyboard, and `aria-sort` tells a screen reader which
+ *  column is ordering the rows. */
+function SortableTh({
+  sortKey,
+  sort,
+  onSort,
+  width,
+  align = "left",
+  title,
+  children,
+}: {
+  sortKey: TripSortKey;
+  sort: TripSort;
+  onSort: (key: TripSortKey) => void;
+  width: string;
+  align?: "left" | "right";
+  title?: string;
+  children: ReactNode;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <th
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+      className={cn("whitespace-nowrap p-0", width, align === "right" ? "text-right" : "text-left")}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        title={title}
+        className={cn(
+          "flex w-full select-none items-center px-2 py-1.5 uppercase transition-colors hover:text-fg sm:px-3 sm:py-2",
+          align === "right" ? "justify-end" : "justify-start",
+          active && "text-fg-muted",
+        )}
+      >
+        <span>{children}</span>
+        <SortIcon active={active} dir={sort.dir} />
+      </button>
+    </th>
+  );
+}
+
 function RouteBadge({ shortName, color }: { shortName: string | null; color: string | null }) {
   const bg = routeColor(color ?? "888888");
   return (
@@ -109,6 +177,13 @@ function TripsContent() {
     () => tripFiltersFromParams(new URLSearchParams(paramsKey)),
     [paramsKey],
   );
+  // Sort lives in the URL beside the filters, for the same reasons: shareable,
+  // and back/forward walks it. It isn't a filter, so it never counts toward the
+  // badge or shows up as a chip.
+  const appliedSort = useMemo(
+    () => tripSortFromParams(new URLSearchParams(paramsKey)),
+    [paramsKey],
+  );
 
   const [startLocal, setStartLocal] = useState(() =>
     urlStart ? isoToLocalInput(urlStart) : toLocalInput(new Date(Date.now() - 3_600_000)),
@@ -130,13 +205,15 @@ function TripsContent() {
   const [page, setPage] = useState(1);
 
   // Sync picker state when URL params change (e.g. after "Apply filters",
-  // "Load trips", or browser back/forward)
+  // "Load trips", a new sort, or browser back/forward). A new sort order goes
+  // back to page 1 like a new filter set does — page 3 of a different ordering
+  // is a different page 3.
   useEffect(() => {
     if (urlStart) setStartLocal(isoToLocalInput(urlStart));
     if (urlEnd) setEndLocal(isoToLocalInput(urlEnd));
     setDraft(appliedFilters);
     setPage(1);
-  }, [urlStart, urlEnd, appliedFilters]);
+  }, [urlStart, urlEnd, appliedFilters, appliedSort]);
 
   // ── Selectable date window ────────────────────────────────────────────────
   // The API rejects a range that is inverted, wider than vehicles_max_span_hours,
@@ -181,6 +258,7 @@ function TripsContent() {
     start: fetchStart,
     end: fetchEnd,
     ...tripFiltersToQuery(appliedFilters),
+    ...tripSortToQuery(appliedSort),
     limit: pageSize,
     offset: (page - 1) * pageSize,
   });
@@ -210,13 +288,22 @@ function TripsContent() {
     return e.getTime() - s.getTime() <= limits.maxSpanHours * 3_600_000;
   }, [startLocal, endLocal, limits.maxSpanHours]);
 
+  // `sort` defaults to whatever is applied, so committing filters or a new
+  // window keeps the table in the order it was in.
   const pushQuery = useCallback(
-    (filters: TripFilters, startIso: string, endIso: string) => {
+    (filters: TripFilters, startIso: string, endIso: string, sort: TripSort | null = appliedSort) => {
       const qs = new URLSearchParams({ start: startIso, end: endIso });
       for (const [k, v] of Object.entries(tripFiltersToParams(filters))) qs.set(k, v);
+      for (const [k, v] of Object.entries(tripSortToParams(sort))) qs.set(k, v);
       router.push(`/trips?${qs}`);
     },
-    [router],
+    [router, appliedSort],
+  );
+
+  /** A header click — re-sorts the applied query, leaving filters and window be. */
+  const handleSort = useCallback(
+    (key: TripSortKey) => pushQuery(appliedFilters, fetchStart, fetchEnd, nextTripSort(appliedSort, key)),
+    [appliedFilters, appliedSort, fetchStart, fetchEnd, pushQuery],
   );
 
   /** "Load trips" — commits a new date/time window, keeping whatever filter
@@ -263,6 +350,7 @@ function TripsContent() {
     // returns to the view the row was clicked from, not just its date range.
     const ret = new URLSearchParams({ start: fetchStart, end: fetchEnd });
     for (const [k, val] of Object.entries(tripFiltersToParams(appliedFilters))) ret.set(k, val);
+    for (const [k, val] of Object.entries(tripSortToParams(appliedSort))) ret.set(k, val);
     qs.set("ret", ret.toString());
     router.push(`/trips/trip/${encodeURIComponent(v.vehicle_label)}?${qs}`);
   }
@@ -297,6 +385,9 @@ function TripsContent() {
   );
 
   const appliedCount = countActiveTripFilters(appliedFilters);
+  // The order the table is in, for the header arrows — with nothing chosen
+  // that's the API's own default, earliest start first.
+  const sort = effectiveTripSort(appliedSort);
 
   const matched = data?.vehicle_count ?? 0;
   const windowTotal = data?.window_count ?? 0;
@@ -499,42 +590,53 @@ function TripsContent() {
                   shrink a step on mobile (same floor for From → To either way) so
                   the handoff to scroll happens later, matching the compact tables
                   elsewhere in the app. */}
-              <table className="w-full min-w-[832px] table-fixed border-collapse text-xs text-fg-muted sm:min-w-[976px] sm:text-sm">
+              <table className="w-full min-w-[960px] table-fixed border-collapse text-xs text-fg-muted sm:min-w-[1104px] sm:text-sm">
+                {/* Status and From → To aren't sortable: a dot has no order worth
+                    asking for, and a route pair has no single value to rank by. */}
                 <thead className="bg-raised text-[10px] uppercase text-fg-subtle sm:text-xs">
                   <tr>
-                    <th className="w-8 whitespace-nowrap px-2 py-1.5 text-left sm:w-10 sm:px-3 sm:py-2">
+                    <th className={cn("whitespace-nowrap px-2 py-1.5 text-left sm:px-3 sm:py-2", COL.status)}>
                       <span className="sr-only">Status</span>
                     </th>
-                    <th className="w-14 whitespace-nowrap px-2 py-1.5 text-left sm:w-16 sm:px-3 sm:py-2">
+                    <SortableTh sortKey="route" sort={sort} onSort={handleSort} width={COL.route}>
                       Route
-                    </th>
-                    <th className="w-16 whitespace-nowrap px-2 py-1.5 text-left sm:w-20 sm:px-3 sm:py-2">
+                    </SortableTh>
+                    <SortableTh sortKey="vehicle" sort={sort} onSort={handleSort} width={COL.vehicle}>
                       Vehicle
-                    </th>
+                    </SortableTh>
                     <th className="whitespace-nowrap px-2 py-1.5 text-left sm:px-3 sm:py-2">From → To</th>
-                    <th className="w-20 whitespace-nowrap px-2 py-1.5 text-left sm:w-24 sm:px-3 sm:py-2">
+                    <SortableTh sortKey="start" sort={sort} onSort={handleSort} width={COL.start}>
                       <span className="sm:hidden">Start</span>
                       <span className="hidden sm:inline">Start Time</span>
-                    </th>
-                    <th className="w-20 whitespace-nowrap px-2 py-1.5 text-left sm:w-24 sm:px-3 sm:py-2">
+                    </SortableTh>
+                    <SortableTh sortKey="end" sort={sort} onSort={handleSort} width={COL.end}>
                       <span className="sm:hidden">End</span>
                       <span className="hidden sm:inline">End Time</span>
-                    </th>
-                    <th className="w-16 whitespace-nowrap px-2 py-1.5 text-right sm:w-20 sm:px-3 sm:py-2">
+                    </SortableTh>
+                    <SortableTh sortKey="duration" sort={sort} onSort={handleSort} width={COL.duration} align="right">
                       <span className="sm:hidden">Dur.</span>
                       <span className="hidden sm:inline">Duration</span>
-                    </th>
-                    <th className="w-[104px] whitespace-nowrap px-2 py-1.5 text-left sm:w-[136px] sm:px-3 sm:py-2">
+                    </SortableTh>
+                    {/* Not a number, so the order is by how crowded the last
+                        reported level was — Empty up to Full — with trips that
+                        never reported one at the end. */}
+                    <SortableTh
+                      sortKey="occupancy"
+                      sort={sort}
+                      onSort={handleSort}
+                      width={COL.occupancy}
+                      title="Sorted by how crowded, Empty to Full. Trips that didn't report come last."
+                    >
                       <span className="sm:hidden">Occ.</span>
                       <span className="hidden sm:inline">Occupancy</span>
-                    </th>
-                    <th className="w-[72px] whitespace-nowrap px-2 py-1.5 text-right sm:w-[88px] sm:px-3 sm:py-2">
+                    </SortableTh>
+                    <SortableTh sortKey="avg_delay" sort={sort} onSort={handleSort} width={COL.delay} align="right">
                       <span className="sm:hidden">Delay</span>
                       <span className="hidden sm:inline">Avg Delay</span>
-                    </th>
-                    <th className="w-16 whitespace-nowrap px-2 py-1.5 text-right sm:w-20 sm:px-3 sm:py-2">
+                    </SortableTh>
+                    <SortableTh sortKey="on_time" sort={sort} onSort={handleSort} width={COL.onTime} align="right">
                       On-Time
-                    </th>
+                    </SortableTh>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
@@ -544,7 +646,7 @@ function TripsContent() {
                       className="cursor-pointer hover:bg-accent/10"
                       onClick={() => handleVehicleClick(v)}
                     >
-                      <td className="w-8 px-2 py-1.5 sm:w-10 sm:px-3 sm:py-2">
+                      <td className={cn("px-2 py-1.5 sm:px-3 sm:py-2", COL.status)}>
                         {/* The API decided the status the filter matched on; the
                             live feed is fresher, so a trip that is still running
                             keeps its blinking dot between refetches. */}
@@ -562,10 +664,10 @@ function TripsContent() {
                           )}
                         />
                       </td>
-                      <td className="w-14 whitespace-nowrap px-2 py-1.5 sm:w-16 sm:px-3 sm:py-2">
+                      <td className={cn("whitespace-nowrap px-2 py-1.5 sm:px-3 sm:py-2", COL.route)}>
                         <RouteBadge shortName={v.route_short_name} color={v.route_color} />
                       </td>
-                      <td className="w-16 whitespace-nowrap px-2 py-1.5 font-semibold sm:w-20 sm:px-3 sm:py-2">
+                      <td className={cn("whitespace-nowrap px-2 py-1.5 font-semibold sm:px-3 sm:py-2", COL.vehicle)}>
                         {v.vehicle_label ? `#${v.vehicle_label}` : "—"}
                       </td>
                       <td className="overflow-hidden px-2 py-1.5 text-fg-muted sm:px-3 sm:py-2">
@@ -578,35 +680,36 @@ function TripsContent() {
                       {/* whitespace-nowrap: the locale time string can wrap its AM/PM
                           onto its own line at some column widths, which grows the row
                           to two lines and jitters the table height between pages. */}
-                      <td className="w-20 whitespace-nowrap px-2 py-1.5 text-fg-muted sm:w-24 sm:px-3 sm:py-2">
+                      <td className={cn("whitespace-nowrap px-2 py-1.5 text-fg-muted sm:px-3 sm:py-2", COL.start)}>
                         {new Date(v.start_time).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                       </td>
-                      <td className="w-20 whitespace-nowrap px-2 py-1.5 text-fg-muted sm:w-24 sm:px-3 sm:py-2">
+                      <td className={cn("whitespace-nowrap px-2 py-1.5 text-fg-muted sm:px-3 sm:py-2", COL.end)}>
                         {new Date(v.end_time).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                       </td>
-                      <td className="w-16 whitespace-nowrap px-2 py-1.5 text-right font-mono text-fg-muted sm:w-20 sm:px-3 sm:py-2">
+                      <td className={cn("whitespace-nowrap px-2 py-1.5 text-right font-mono text-fg-muted sm:px-3 sm:py-2", COL.duration)}>
                         {formatDuration(v.duration_minutes)}
                       </td>
-                      <td className="w-[104px] whitespace-nowrap px-2 py-1.5 text-fg-muted sm:w-[136px] sm:px-3 sm:py-2">
+                      <td className={cn("whitespace-nowrap px-2 py-1.5 text-fg-muted sm:px-3 sm:py-2", COL.occupancy)}>
                         {v.last_occupancy_status
                           ? occupancyLabel(v.last_occupancy_status)
                           : "—"}
                       </td>
                       <td
                         className={cn(
-                          "w-[72px] whitespace-nowrap px-2 py-1.5 text-right font-mono sm:w-[88px] sm:px-3 sm:py-2",
+                          "whitespace-nowrap px-2 py-1.5 text-right font-mono sm:px-3 sm:py-2",
+                          COL.delay,
                           avgDelayColor(v.avg_delay_seconds),
                         )}
                       >
                         {formatDelayMin(v.avg_delay_seconds)}
                       </td>
-                      <td className="w-16 whitespace-nowrap px-2 py-1.5 text-right font-mono text-fg-muted sm:w-20 sm:px-3 sm:py-2">
+                      <td className={cn("whitespace-nowrap px-2 py-1.5 text-right font-mono text-fg-muted sm:px-3 sm:py-2", COL.onTime)}>
                         {v.on_time_pct !== null ? `${Math.round(v.on_time_pct)}%` : "—"}
                       </td>
                     </tr>

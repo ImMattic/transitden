@@ -19,6 +19,7 @@ from app.api.v1.vehicles import (
     _describe_trip,
     _matches_filters,
     _mode_of,
+    _sorted_trips,
     _split_csv,
     _trip_delay_stats,
 )
@@ -385,3 +386,97 @@ def test_delay_window_of_an_empty_page_is_the_scan_window():
 
 async def test_delay_map_of_no_trips_is_empty(db_session):
     assert await _delay_map(db_session, NOW - timedelta(hours=1), NOW, {}) == {}
+
+
+# ── Sorting ──────────────────────────────────────────────────────────────────
+
+
+def ids(trips: list[dict]) -> list[str]:
+    return [t["trip_id"] for t in trips]
+
+
+def test_no_sort_keeps_the_window_order_but_returns_a_new_list():
+    trips = [describe(trip_id="b"), describe(trip_id="a")]
+    out = _sorted_trips(trips, None, False)
+    assert ids(out) == ["b", "a"]
+    assert out is not trips
+
+
+def test_sorting_never_reorders_the_input_list():
+    trips = [describe(trip_id="a", vehicle_label="20"), describe(trip_id="b", vehicle_label="3")]
+    _sorted_trips(trips, "vehicle", False)
+    assert ids(trips) == ["a", "b"]
+
+
+def test_occupancy_sorts_by_crowding_not_alphabetically():
+    levels = ["FULL", "EMPTY", "STANDING_ROOM_ONLY", "MANY_SEATS_AVAILABLE",
+              "CRUSHED_STANDING_ROOM_ONLY", "FEW_SEATS_AVAILABLE"]
+    trips = [describe(trip_id=lvl, occupancy_status=lvl) for lvl in levels]
+    assert ids(_sorted_trips(trips, "occupancy", False)) == [
+        "EMPTY", "MANY_SEATS_AVAILABLE", "FEW_SEATS_AVAILABLE",
+        "STANDING_ROOM_ONLY", "CRUSHED_STANDING_ROOM_ONLY", "FULL",
+    ]
+    assert ids(_sorted_trips(trips, "occupancy", True)) == [
+        "FULL", "CRUSHED_STANDING_ROOM_ONLY", "STANDING_ROOM_ONLY",
+        "FEW_SEATS_AVAILABLE", "MANY_SEATS_AVAILABLE", "EMPTY",
+    ]
+
+
+@pytest.mark.parametrize("descending", [False, True])
+def test_trips_that_never_reported_occupancy_sort_last_in_either_direction(descending):
+    trips = [
+        describe(trip_id="none", occupancy_status=None),
+        describe(trip_id="unknown", occupancy_status="UNKNOWN"),
+        describe(trip_id="empty", occupancy_status="EMPTY"),
+        describe(trip_id="full", occupancy_status="FULL"),
+    ]
+    out = ids(_sorted_trips(trips, "occupancy", descending))
+    assert out[:2] == (["full", "empty"] if descending else ["empty", "full"])
+    assert set(out[2:]) == {"none", "unknown"}
+
+
+@pytest.mark.parametrize("descending", [False, True])
+def test_missing_delay_and_on_time_sort_last_in_either_direction(descending):
+    trips = [describe(trip_id=n) for n in ("none", "early", "late")]
+    for t, delay in zip(trips, (None, -120.0, 400.0)):
+        t["avg_delay_seconds"] = delay
+        t["on_time_pct"] = delay
+    for key in ("avg_delay", "on_time"):
+        out = ids(_sorted_trips(trips, key, descending))
+        assert out == (["late", "early", "none"] if descending else ["early", "late", "none"])
+
+
+def test_route_and_vehicle_sort_numerically_with_letters_after():
+    trips = [
+        describe(trip_id="rE", route_id="rE", vehicle_label="E12"),
+        describe(trip_id="r15", route_id="r15", vehicle_label="1010"),
+        describe(trip_id="r120", route_id="r15", vehicle_label="990"),
+    ]
+    trips[2]["route_short_name"] = "120"
+    assert ids(_sorted_trips(trips, "route", False)) == ["r15", "r120", "rE"]
+    assert ids(_sorted_trips(trips, "route", True)) == ["rE", "r120", "r15"]
+    assert ids(_sorted_trips(trips, "vehicle", False)) == ["r120", "r15", "rE"]
+
+
+def test_start_end_and_duration_sort_by_time():
+    trips = [
+        describe(trip_id="long", start_time=NOW - timedelta(minutes=90), end_time=NOW),
+        describe(trip_id="short", start_time=NOW - timedelta(minutes=20), end_time=NOW - timedelta(minutes=5)),
+        describe(trip_id="mid", start_time=NOW - timedelta(minutes=50), end_time=NOW - timedelta(minutes=10)),
+    ]
+    assert ids(_sorted_trips(trips, "start", False)) == ["long", "mid", "short"]
+    assert ids(_sorted_trips(trips, "end", True)) == ["long", "short", "mid"]
+    assert ids(_sorted_trips(trips, "duration", True)) == ["long", "mid", "short"]
+
+
+@pytest.mark.parametrize("descending", [False, True])
+def test_ties_keep_the_window_order_in_both_directions(descending):
+    trips = [describe(trip_id=n, occupancy_status="FULL") for n in ("a", "b", "c")]
+    assert ids(_sorted_trips(trips, "occupancy", descending)) == ["a", "b", "c"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_sort_column_or_direction_is_rejected(client):
+    for params in ({"sort_by": "colour"}, {"sort_by": "duration", "sort_dir": "sideways"}):
+        resp = await client.get("/api/v1/vehicles/active", params=params)
+        assert resp.status_code == 422

@@ -130,8 +130,8 @@ export default function DashboardFilterMenu({ routes, filters, onChange }: Props
         aria-label="Filter dashboard"
         aria-expanded={open}
         className={cn(
-          "press flex h-9 shrink-0 items-center justify-center gap-1 rounded border transition-[background-color,border-color,color] duration-200",
-          appliedCount > 0 ? "px-2.5" : "w-9",
+          "press flex h-8 shrink-0 items-center justify-center gap-1 rounded border transition-[background-color,border-color,color] duration-200",
+          appliedCount > 0 ? "px-2.5" : "w-8",
           appliedCount > 0 || open
             ? "border-accent bg-accent/10 text-accent"
             : "border-line bg-card text-fg-subtle hover:border-line-strong hover:text-fg-muted",
