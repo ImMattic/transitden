@@ -15,6 +15,7 @@ from sqlalchemy.orm import load_only
 
 from app.api.v1._date_range import resolve_range
 from app.api.v1._route_filter import resolve_route_ids
+from app.api.v1.routes import shapes_for_route
 from app.database import get_db
 from app.models.vehicle_position import VehiclePosition
 from app.schemas.stats import (
@@ -27,6 +28,7 @@ from app.schemas.stats import (
     StuckAlert,
 )
 from app.services.gtfs_decoder import load_gtfs_static_data, load_route_terminal_stops, load_trip_endpoint_sequences
+from app.services.route_geometry import distance_to_shapes_m
 from app.config import get_settings
 
 router = APIRouter(prefix="/stats", tags=["stats"])
@@ -354,6 +356,14 @@ async def _build_alerts(db: AsyncSession) -> AlertsResponse:
                                 break
                 if at_terminal:
                     continue
+
+        # Skip vehicles that aren't on their route. A bus idling in the yard
+        # with its transponder on reports a fixed position too, but that's a
+        # parked bus, not one stuck in service. Checked last: it's the costliest
+        # test, so let the cheap ones thin the field first. A route with no known
+        # shape can't be verified, so it doesn't alert either.
+        if distance_to_shapes_m(lat0, lon0, shapes_for_route(latest.route_id)) > settings.stuck_route_max_distance_m:
+            continue
 
         stop_info = stops_static.get(latest.stop_id or "", {})
         route_info = routes_static.get(latest.route_id, {})

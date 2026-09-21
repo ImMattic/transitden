@@ -340,6 +340,66 @@ async def _build_window(
     return trips, facets
 
 
+def _name_sort_key(name: str | None) -> tuple[int, int, str]:
+    """Numeric names sort as numbers ("15" before "120"), lettered rail lines
+    after them, so a list reads the way the system is signed."""
+    text_name = name or ""
+    return (0, int(text_name), "") if text_name.isdigit() else (1, 0, text_name)
+
+
+# GTFS-realtime OccupancyStatus, least to most crowded — the same order the
+# frontend's OCCUPANCY_ORDER reads in (lib/utils.ts).  Occupancy is a category,
+# not a number, so this ranking is what "sort by occupancy" means.  A trip that
+# never reported ("UNKNOWN", or nothing at all) has no rank and sorts last.
+_OCCUPANCY_RANK = {
+    status: rank
+    for rank, status in enumerate(
+        (
+            "EMPTY",
+            "MANY_SEATS_AVAILABLE",
+            "FEW_SEATS_AVAILABLE",
+            "STANDING_ROOM_ONLY",
+            "CRUSHED_STANDING_ROOM_ONLY",
+            "FULL",
+            "NOT_ACCEPTING_PASSENGERS",
+        )
+    )
+}
+
+# Sortable column → the value a trip is ordered by.  ``None`` means "no reading"
+# and always lands at the end, whichever direction was asked for.  Start and end
+# are ISO strings of same-offset datetimes out of one query, which compare
+# chronologically as text.
+_SORT_KEYS: dict[str, Callable[[dict], object]] = {
+    "route": lambda t: _name_sort_key(t["route_short_name"]) if t["route_short_name"] else None,
+    "vehicle": lambda t: _name_sort_key(t["vehicle_label"]) if t["vehicle_label"] else None,
+    "start": lambda t: t["start_time"],
+    "end": lambda t: t["end_time"],
+    "duration": lambda t: t["duration_minutes"],
+    "occupancy": lambda t: _OCCUPANCY_RANK.get(t["last_occupancy_status"] or ""),
+    "avg_delay": lambda t: t["avg_delay_seconds"],
+    "on_time": lambda t: t["on_time_pct"],
+}
+
+
+def _sorted_trips(trips: list[dict], sort_by: str | None, descending: bool) -> list[dict]:
+    """``trips`` ordered by one column; a new list, the input is left alone.
+
+    Ties keep the window's own order (start time, then route), since Python's
+    sort is stable — including with ``reverse``, which flips the comparison
+    rather than the result.  Trips with no reading sit after the ones with one
+    in both directions: a blank is not "the smallest delay".
+    """
+    if sort_by is None:
+        return list(trips)
+    key = _SORT_KEYS[sort_by]
+    keyed = [(key(t), t) for t in trips]
+    have = [kt for kt in keyed if kt[0] is not None]
+    blank = [t for k, t in keyed if k is None]
+    have.sort(key=lambda kt: kt[0], reverse=descending)
+    return [t for _, t in have] + blank
+
+
 @router.get("/active")
 async def get_active_vehicles(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -358,6 +418,10 @@ async def get_active_vehicles(
     min_on_time_pct: Annotated[float | None, Query(ge=0, le=100)] = None,
     max_on_time_pct: Annotated[float | None, Query(ge=0, le=100)] = None,
     strict: Annotated[bool, Query()] = False,
+    sort_by: Annotated[
+        str | None, Query(pattern="^(" + "|".join(_SORT_KEYS) + ")$")
+    ] = None,
+    sort_dir: Annotated[str, Query(pattern="^(asc|desc)$")] = "asc",
     limit: Annotated[int, Query(ge=1, le=100)] = 15,
     offset: Annotated[int, Query(ge=0, le=5_000)] = 0,
 ) -> dict:
@@ -426,6 +490,9 @@ async def get_active_vehicles(
         )
     ]
 
+    # Ordering is part of what "page 2" means, so it too happens before paging.
+    # With no ``sort_by`` the window's own order (start time) stands.
+    matches = _sorted_trips(matches, sort_by, sort_dir == "desc")
     page = [dict(t) for t in matches[offset:offset + limit]]
 
     # last_delay_seconds isn't filterable, so it's the one field still looked
@@ -624,17 +691,11 @@ def _build_facets(trips: list[dict], *, route_scoped: bool = False) -> dict:
             if short and short not in vehicle["route_short_names"]:
                 vehicle["route_short_names"].append(short)
 
-    def _sort_key(name: str | None) -> tuple[int, int, str]:
-        # Numeric route names sort as numbers ("15" before "120"), lettered rail
-        # lines after them, so the list reads the way the system is signed.
-        text_name = name or ""
-        return (0, int(text_name), "") if text_name.isdigit() else (1, 0, text_name)
-
     return {
         "trip_count": len(trips),
         "route_scoped": route_scoped,
-        "routes": sorted(routes.values(), key=lambda r: _sort_key(r["route_short_name"])),
-        "vehicles": sorted(vehicles.values(), key=lambda v: _sort_key(v["vehicle_label"])),
+        "routes": sorted(routes.values(), key=lambda r: _name_sort_key(r["route_short_name"])),
+        "vehicles": sorted(vehicles.values(), key=lambda v: _name_sort_key(v["vehicle_label"])),
         "statuses": statuses,
         "modes": modes,
         "occupancy": occupancy,

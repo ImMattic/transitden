@@ -3,6 +3,7 @@ import { memo, useMemo, useState } from "react";
 import type { FrequencyRouteStats } from "@/lib/types";
 import { bestTextOn, headwayColor } from "@/lib/utils";
 import { useTheme } from "@/lib/useTheme";
+import SortIcon from "@/components/ui/SortIcon";
 
 type SortKey = keyof Pick<
   FrequencyRouteStats,
@@ -15,14 +16,6 @@ const PAGE_SIZE = 15;
 interface Props {
   routes: FrequencyRouteStats[];
   onRowClick?: (routeId: string) => void;
-}
-
-function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-  return (
-    <span className={`ml-1 inline-block ${active ? "text-fg-muted" : "text-fg-subtle/60"}`}>
-      {active && dir === "desc" ? "▼" : "▲"}
-    </span>
-  );
 }
 
 function FrequencyBadge({ minutes, mode }: { minutes: number; mode: "dark" | "light" }) {

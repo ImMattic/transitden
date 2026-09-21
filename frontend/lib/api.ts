@@ -229,6 +229,9 @@ export interface ActiveVehiclesParams {
   min_on_time_pct?: number;
   max_on_time_pct?: number;
   strict?: boolean;
+  /** One of the Trip Explorer's sortable columns — see `TripSortKey`. */
+  sort_by?: string;
+  sort_dir?: string;
   limit?: number;
   offset?: number;
 }
@@ -249,6 +252,8 @@ export function fetchActiveVehicles(params: ActiveVehiclesParams = {}): Promise<
     min_on_time_pct: params.min_on_time_pct,
     max_on_time_pct: params.max_on_time_pct,
     strict: params.strict ? "true" : undefined,
+    sort_by: params.sort_by,
+    sort_dir: params.sort_dir,
     limit: params.limit,
     offset: params.offset,
   }));

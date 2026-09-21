@@ -25,6 +25,9 @@ interface Props {
   limits: DashboardRangeLimits;
   now: Date;
   id?: string;
+  /** True while the range in use is a custom one — i.e. none of the quick-day
+   *  buttons beside this matches it — so the trigger lights up in their place. */
+  active?: boolean;
 }
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -38,9 +41,9 @@ type RangeRole = "start" | "end" | "single" | "in-range" | "none";
 const POPOVER_WIDTH = 320;
 
 /**
- * The Dashboard's "Custom" date-range field: a plain trigger (never showing
- * the picked dates — the 1d/7d/30d quick buttons beside it already show what's
- * active) opening one calendar-only panel — a date-only sibling of the Trip
+ * The Dashboard's "Custom" date-range field: an icon-only trigger (never showing
+ * the picked dates; it just lights up, via `active`, when the range in use isn't
+ * one of the 1d/7d/30d quick buttons beside it) opening one calendar-only panel — a date-only sibling of the Trip
  * Explorer's `DateRangePicker`, with no presets of its own and no anchoring to
  * "now": unlike the trips picker's hour-scale windows, this can express any
  * past `[start, end]`, because the Dashboard's analytics endpoints read
@@ -54,7 +57,7 @@ const POPOVER_WIDTH = 320;
  * Every interaction commits straight through `onChange` — there's no
  * internal draft — same "pick, it's applied" behaviour as `DateRangePicker`.
  */
-export default function DashboardDateRangePicker({ start, end, onChange, limits, now, id }: Props) {
+export default function DashboardDateRangePicker({ start, end, onChange, limits, now, id, active = false }: Props) {
   const isPhone = useIsPhone();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -332,9 +335,6 @@ export default function DashboardDateRangePicker({ start, end, onChange, limits,
     </div>
   );
 
-  const fieldClass =
-    "rounded border border-line bg-card px-2 py-1.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent";
-
   return (
     <div className="flex flex-col gap-1">
       <span id={labelId} className="sr-only">
@@ -349,23 +349,30 @@ export default function DashboardDateRangePicker({ start, end, onChange, limits,
           aria-expanded={open}
           aria-labelledby={`${labelId} ${id ?? triggerId}`}
           title="Pick a custom date range"
+          // Icon-only, and the same 32px square as the filter button beside it
+          // (same border and open/idle colours too), so the two read as a pair.
           className={cn(
-            fieldClass,
-            "flex items-center gap-1.5 font-medium",
-            open && "ring-2 ring-accent",
+            "press grid h-8 w-8 shrink-0 place-items-center rounded border transition-[background-color,border-color,color] duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+            // Solid accent when a custom range is what's applied, matching the
+            // selected 1d/7d/30d buttons; the softer tint is just "panel open".
+            active
+              ? "border-accent bg-accent text-accent-ink"
+              : open
+                ? "border-accent bg-accent/10 text-accent"
+                : "border-line bg-card text-fg-subtle hover:border-line-strong hover:text-fg-muted",
           )}
         >
-          {/* Cog/settings icon — a custom range is a mode you switch into,
-              not a value being displayed (the quick-day buttons beside this
-              already show the active range). */}
-          <svg className="h-3.5 w-3.5 shrink-0 text-fg-subtle" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          {/* Calendar icon — a custom range is a mode you switch into, not a
+              value being displayed (the quick-day buttons beside this already
+              show the active range). The accessible name still comes from the
+              sr-only "Custom date range" label above. */}
+          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
             <path
               fillRule="evenodd"
-              d="M8.34 1.804A1 1 0 0 1 9.32 1h1.36a1 1 0 0 1 .98.804l.295 1.473c.497.144.971.342 1.416.587l1.25-.834a1 1 0 0 1 1.262.125l.962.962a1 1 0 0 1 .125 1.262l-.834 1.25c.245.445.443.919.587 1.416l1.473.295a1 1 0 0 1 .804.98v1.36a1 1 0 0 1-.804.98l-1.473.295a5.973 5.973 0 0 1-.587 1.416l.834 1.25a1 1 0 0 1-.125 1.262l-.962.962a1 1 0 0 1-1.262.125l-1.25-.834a5.98 5.98 0 0 1-1.416.587l-.295 1.473a1 1 0 0 1-.98.804H9.32a1 1 0 0 1-.98-.804l-.295-1.473a5.98 5.98 0 0 1-1.416-.587l-1.25.834a1 1 0 0 1-1.262-.125l-.962-.962a1 1 0 0 1-.125-1.262l.834-1.25a5.98 5.98 0 0 1-.587-1.416l-1.473-.295a1 1 0 0 1-.804-.98V9.32a1 1 0 0 1 .804-.98l1.473-.295c.144-.497.342-.971.587-1.416l-.834-1.25a1 1 0 0 1 .125-1.262l.962-.962a1 1 0 0 1 1.262-.125l1.25.834c.445-.245.919-.443 1.416-.587l.295-1.473ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+              d="M5.75 2a.75.75 0 0 1 .75.75V4h7V2.75a.75.75 0 0 1 1.5 0V4h.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H5V2.75A.75.75 0 0 1 5.75 2Zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75Z"
               clipRule="evenodd"
             />
           </svg>
-          <span>Custom</span>
         </button>
 
         {open && isPhone && mounted &&

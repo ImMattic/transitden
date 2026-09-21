@@ -67,8 +67,9 @@ function delta(m?: { value: number; previous: number | null }): number | null {
   return m.value - m.previous;
 }
 
-// Quick day-count buttons, kept alongside the "Custom" calendar picker for
-// arbitrary ranges.
+// Quick day-count buttons, kept alongside the calendar-icon picker for
+// arbitrary ranges. These, the filter button and the calendar button all share
+// one height (h-8) so the row reads as a single set of controls.
 const QUICK_DAY_OPTIONS = [1, 7, 30];
 const quickDayPreset = (d: number): DashboardRangePreset => ({ label: `${d}d`, days: d });
 
@@ -154,6 +155,12 @@ export default function DashboardPage() {
     sortedRoutes.find((r) => r.route_id === rid)?.short_name;
 
   const chips = dashboardFilterChips(filters, routeName);
+
+  // With no quick-day button matching, the range in use is a custom one — the
+  // calendar button lights up in their place.
+  const customRangeActive = !QUICK_DAY_OPTIONS.some((d) =>
+    isPresetActive(range.start, range.end, quickDayPreset(d), rangeLimits, now),
+  );
 
   /** Add a route to the applied set — used by the scorecard row click. Immediate,
    *  the way removing a chip is. */
@@ -244,10 +251,10 @@ export default function DashboardPage() {
                 <button
                   key={d}
                   onClick={() => setRange(presetRange(preset, rangeLimits, now))}
-                  className={`rounded px-3 py-1 font-medium transition-colors ${
+                  className={`flex h-8 items-center rounded border px-3 font-medium transition-colors ${
                     active
-                      ? "bg-accent text-accent-ink"
-                      : "bg-card border border-line text-fg-muted hover:border-accent"
+                      ? "border-accent bg-accent text-accent-ink"
+                      : "border-line bg-card text-fg-muted hover:border-accent"
                   }`}
                 >
                   {d}d
@@ -261,6 +268,7 @@ export default function DashboardPage() {
             onChange={handleRangeChange}
             limits={rangeLimits}
             now={now}
+            active={customRangeActive}
           />
         </div>
       </div>

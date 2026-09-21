@@ -218,3 +218,21 @@ async def test_one_requests_page_edits_do_not_leak_into_the_cached_window(client
     await client.get(f"/api/v1/vehicles/active?start={START}&end={END}&limit=5")
     cached_trips, _ = next(iter(vehicles._window_cache.values()))[1:]
     assert all(t["last_delay_seconds"] is None for t in cached_trips)
+
+
+async def test_sorting_is_applied_before_paging_and_leaves_the_cache_alone(client, stub_build):
+    # window_of() is already in start order, so a descending sort has to reach
+    # back across pages: the *last* trips of the window come first.
+    page1 = (await client.get(
+        f"/api/v1/vehicles/active?start={START}&end={END}&limit=10&sort_by=start&sort_dir=desc"
+    )).json()
+    page2 = (await client.get(
+        f"/api/v1/vehicles/active?start={START}&end={END}&limit=10&offset=10&sort_by=start&sort_dir=desc"
+    )).json()
+
+    assert stub_build["n"] == 1
+    assert [v["trip_id"] for v in page1["vehicles"]] == [f"trip{i}" for i in range(29, 19, -1)]
+    assert [v["trip_id"] for v in page2["vehicles"]] == [f"trip{i}" for i in range(19, 9, -1)]
+
+    cached_trips, _ = next(iter(vehicles._window_cache.values()))[1:]
+    assert [t["trip_id"] for t in cached_trips] == [f"trip{i}" for i in range(30)]

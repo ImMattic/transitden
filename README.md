@@ -12,7 +12,7 @@ TransitDen pulls live vehicle positions from the RTD GTFS-RT feed every 30 secon
 - **Historical data** — all positions are persisted in TimescaleDB for trend analysis and export
 - **Dashboard** — on-time performance charts, frequency tables, delay incidents, and stuck-vehicle alerts
 - **GTFS static data** — route shapes, stop names, and schedule info parsed directly from RTD's static feed
-- **Automatic stuck-vehicle detection** — flags vehicles that haven't moved in more than 5 minutes
+- **Automatic stuck-vehicle detection** — flags vehicles that haven't moved in more than 5 minutes while on their route (vehicles parked off-route, e.g. in a yard, are ignored)
 
 ---
 
@@ -129,6 +129,7 @@ The `docker-compose.yml` file contains all default environment variables for loc
 | `GTFS_RT_TRIP_URL` | RTD trip updates feed | GTFS-RT protobuf endpoint |
 | `POLLING_INTERVAL_SECONDS` | `10` | How often to fetch live positions |
 | `STUCK_VEHICLE_MINUTES` | `5` | Minutes without movement before a vehicle is flagged |
+| `STUCK_ROUTE_MAX_DISTANCE_M` | `50` | A stationary vehicle only counts as stuck within this many metres of its route's shape |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins |
 
 ---
