@@ -11,7 +11,7 @@ import {
   useFrequency,
   useScheduleFrequency,
   useOccupancy,
-  useAlerts,
+  useServiceDelivery,
   useRoutes,
   useLimits,
 } from "@/lib/hooks";
@@ -39,7 +39,7 @@ import { ActiveFilterChip } from "@/components/ui/FilterControls";
 import { Card, SectionHeading } from "@/components/ui/Card";
 import KpiCard from "@/components/dashboard/KpiCard";
 import FrequencyTable from "@/components/dashboard/FrequencyTable";
-import DelayIncidents from "@/components/dashboard/DelayIncidents";
+import ServiceDeliveryChart from "@/components/charts/ServiceDeliveryChart";
 import TrendChart from "@/components/charts/TrendChart";
 import Heatmap from "@/components/charts/Heatmap";
 import type { HeatmapCell } from "@/lib/types";
@@ -49,7 +49,7 @@ import HeadwayChart from "@/components/charts/HeadwayChart";
 import OccupancyChart from "@/components/charts/OccupancyChart";
 import WorstStopsTable from "@/components/charts/WorstStopsTable";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import { formatDelayMin, onTimeColor } from "@/lib/utils";
+import { deliveredColor, formatDelayMin, formatNumber, onTimeColor } from "@/lib/utils";
 import { useTheme } from "@/lib/useTheme";
 
 function fmtSpan(hhmm: string | null | undefined): string {
@@ -141,7 +141,7 @@ export default function DashboardPage() {
   const singleRouteId = effectiveRouteIds.length === 1 ? effectiveRouteIds[0] : undefined;
 
   const overview = useOverview(range, scope);
-  const alerts = useAlerts();
+  const serviceDelivery = useServiceDelivery(range, scope);
   const trend = useOnTimeTrend(range, scope, granularity);
   const heatmap = useHeatmap(heatmapRange, scope);
   const distribution = useDistribution(range, scope);
@@ -223,7 +223,6 @@ export default function DashboardPage() {
   }
 
   const ov = overview.data;
-  const alertCount = alerts.data?.alerts.length ?? 0;
   const scopeLabel =
     chips.length === 0
       ? "all routes"
@@ -308,9 +307,18 @@ export default function DashboardPage() {
           lowerIsBetter
         />
         <KpiCard
-          title="Stuck Alerts"
-          value={alerts.isLoading ? "…" : String(alertCount)}
-          accentColor={alertCount > 0 ? "rgb(var(--fg))" : "rgb(var(--ok))"}
+          title="Service Delivered"
+          value={ov ? `${ov.service_delivered_pct.value.toFixed(1)}%` : "—"}
+          subtitle={
+            ov
+              ? `${formatNumber(ov.observed_trips)} / ${formatNumber(ov.scheduled_trips)} trips`
+              : undefined
+          }
+          hint="Share of scheduled trips that actually ran. On-time rate only counts trips that showed up — this one catches the trips that never did, so a route can be punctual and still score badly here."
+          hintAlign="right"
+          delta={delta(ov?.service_delivered_pct)}
+          deltaSuffix="pts"
+          accentColor={ov ? deliveredColor(ov.service_delivered_pct.value, resolvedTheme) : undefined}
         />
       </div>
 
@@ -394,6 +402,23 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      <Card>
+        <SectionHeading
+          title="Service Delivery by Route"
+          subtitle={
+            ov
+              ? `${formatNumber(ov.observed_trips)} of ${formatNumber(ov.scheduled_trips)} scheduled trips operated`
+              : "Trips operated vs. scheduled"
+          }
+          hint="Trips the feed actually saw, against what the timetable promised. A short bar means trips went missing outright — a different failure from the late-but-present trips the on-time cards measure."
+        />
+        {serviceDelivery.isLoading ? (
+          <LoadingSpinner />
+        ) : serviceDelivery.data ? (
+          <ServiceDeliveryChart data={serviceDelivery.data} />
+        ) : null}
+      </Card>
+
       {/* ── Live Demand ─────────────────────────────────────────────── */}
       <h2 className="pt-2 text-lg font-bold text-fg-subtle">Live Demand</h2>
 
@@ -415,15 +440,6 @@ export default function DashboardPage() {
             onDirectionChange={setOccDirection}
           />
         ) : null}
-      </Card>
-
-      {/* ── Live alerts ─────────────────────────────────────────────── */}
-      <Card>
-        <SectionHeading
-          title="Stuck Vehicle Alerts"
-          hint="Vehicles stationary beyond the alert threshold."
-        />
-        {alerts.isLoading ? <LoadingSpinner /> : <DelayIncidents alerts={alerts.data?.alerts ?? []} />}
       </Card>
     </div>
   );

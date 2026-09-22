@@ -44,7 +44,6 @@ interface Props {
   dataUpdatedAt: number;
   filters: MapFilters;
   onFiltersChange: (filters: MapFilters) => void;
-  stuckKeys: Set<string>;
   onSelect: (vehicle: VehiclePosition) => void;
   onSelectStop: (stop: StopInfo) => void;
 }
@@ -66,7 +65,6 @@ export default function MapStatusBar({
   dataUpdatedAt,
   filters,
   onFiltersChange,
-  stuckKeys,
   onSelect,
   onSelectStop,
 }: Props) {
@@ -508,7 +506,6 @@ export default function MapStatusBar({
             vehicles={vehicles}
             filters={filters}
             onChange={onFiltersChange}
-            stuckKeys={stuckKeys}
           />
         </div>
 

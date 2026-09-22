@@ -173,42 +173,6 @@ def _extract_occupancy(vehicle_pos: Any) -> str:
     return "UNKNOWN"
 
 
-def load_route_terminal_stops(gtfs_static_root: Path | None = None) -> dict[str, set[str]]:
-    """Return {route_id: {terminal_stop_ids}} for all routes.
-
-    Terminal stops are the first and last stop of every scheduled trip for that
-    route.  Used as a fallback when a live trip_id is not present in the static
-    schedule (e.g. RTD added/modified trips).
-    """
-    root = gtfs_static_root or resolve_gtfs_static_root()
-
-    trip_route: dict[str, str] = {}
-    for folder in TRANSIT_FOLDERS:
-        f = root / folder / "trips.txt"
-        if not f.exists():
-            continue
-        with f.open("r", encoding="utf-8", newline="") as handle:
-            for row in csv.DictReader(handle):
-                tid = row.get("trip_id")
-                rid = row.get("route_id")
-                if tid and rid:
-                    trip_route[tid] = rid
-
-    _, stop_ids = load_trip_endpoint_sequences(gtfs_static_root)
-
-    route_terminals: dict[str, set[str]] = defaultdict(set)
-    for trip_id, (first_sid, last_sid) in stop_ids.items():
-        route_id = trip_route.get(trip_id)
-        if not route_id:
-            continue
-        if first_sid:
-            route_terminals[route_id].add(first_sid)
-        if last_sid:
-            route_terminals[route_id].add(last_sid)
-
-    return dict(route_terminals)
-
-
 def format_line_info(entities: Any, routes: dict[str, dict[str, Any]], stops: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     lines_data: dict[str, dict[str, Any]] = defaultdict(lambda: {"vehicles": [], "route_info": None})
 

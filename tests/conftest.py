@@ -111,7 +111,6 @@ def patch_gtfs_static():
         patch("app.api.v1.realtime.load_gtfs_static_data", return_value=({}, {})),
         patch("app.api.v1.historical.load_gtfs_static_data", return_value=({}, {})),
         patch("app.api.v1.stats.load_gtfs_static_data", return_value=({}, {})),
-        patch("app.api.v1.stats.load_trip_endpoint_sequences", return_value=({}, {})),
         patch("app.api.v1.analytics.load_gtfs_static_data", return_value=({}, {})),
         patch("app.api.v1.analytics.load_schedule_summary", return_value={}),
     ):

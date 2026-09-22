@@ -135,24 +135,6 @@ export interface FrequencyResponse {
   routes: FrequencyRouteStats[];
 }
 
-export interface StuckAlert {
-  vehicle_id: string | null;
-  vehicle_label: string | null;
-  route_id: string;
-  route_short_name: string;
-  latitude: number | null;
-  longitude: number | null;
-  stop_id: string | null;
-  stop_name: string | null;
-  stuck_since: string;
-  minutes_stuck: number;
-}
-
-export interface AlertsResponse {
-  computed_at: string;
-  alerts: StuckAlert[];
-}
-
 export interface RoutesResponse {
   routes: RouteInfo[];
 }

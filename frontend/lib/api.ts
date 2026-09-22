@@ -1,6 +1,5 @@
 import type {
   ActiveVehiclesResponse,
-  AlertsResponse,
   DistributionResponse,
   FrequencyResponse,
   HeatmapResponse,
@@ -152,10 +151,6 @@ export function fetchOnTime(range: DashboardRange, scope?: RouteScope): Promise<
 
 export function fetchFrequency(scope?: RouteScope): Promise<FrequencyResponse> {
   return apiFetch(withParams("/api/v1/stats/frequency", { ...scopeParams(scope) }));
-}
-
-export function fetchAlerts(): Promise<AlertsResponse> {
-  return apiFetch("/api/v1/stats/alerts");
 }
 
 // ── Analytics ────────────────────────────────────────────────────────────────

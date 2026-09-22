@@ -9,11 +9,10 @@ import {
   modeOf,
   movementBand,
   punctualityBand,
-  stuckVehicleKeys,
   vehicleKey,
   type MapFilters,
 } from "@/lib/mapFilters";
-import type { StuckAlert, VehiclePosition } from "@/lib/types";
+import type { VehiclePosition } from "@/lib/types";
 
 function vehicle(overrides: Partial<VehiclePosition> = {}): VehiclePosition {
   return {
@@ -140,29 +139,10 @@ describe("applyMapFilters", () => {
     expect(applyMapFilters([quiet], filters({ occupancy: ["UNKNOWN"] }))).toEqual([quiet]);
   });
 
-  it("keeps only flagged vehicles when stuck-only is on", () => {
-    const alerts: StuckAlert[] = [
-      {
-        vehicle_id: "v2",
-        vehicle_label: "2002",
-        route_id: "E",
-        route_short_name: "E",
-        latitude: 39.7,
-        longitude: -105,
-        stop_id: null,
-        stop_name: null,
-        stuck_since: "2026-09-10T11:40:00Z",
-        minutes_stuck: 20,
-      },
-    ];
-    const keys = stuckVehicleKeys(alerts);
-    expect(applyMapFilters(all, filters({ stuckOnly: true }), keys)).toEqual([train]);
-  });
-
   it("counts one active filter per group that is set", () => {
     expect(
-      countActiveMapFilters(filters({ modes: ["rail"], routeIds: ["E", "15"], stuckOnly: true })),
-    ).toBe(3);
+      countActiveMapFilters(filters({ modes: ["rail"], routeIds: ["E", "15"] })),
+    ).toBe(2);
   });
 });
 
@@ -208,10 +188,10 @@ describe("mapFiltersEqual", () => {
     expect(mapFiltersEqual(a, b)).toBe(true);
   });
 
-  it("catches a real edit and a toggled flag", () => {
+  it("catches a real edit", () => {
     const base: MapFilters = { ...EMPTY_MAP_FILTERS, routeIds: ["15"] };
     expect(mapFiltersEqual(base, { ...base, routeIds: ["15", "20"] })).toBe(false);
-    expect(mapFiltersEqual(base, { ...base, stuckOnly: true })).toBe(false);
+    expect(mapFiltersEqual(base, { ...base, movement: ["stopped"] })).toBe(false);
     expect(mapFiltersEqual(EMPTY_MAP_FILTERS, EMPTY_MAP_FILTERS)).toBe(true);
   });
 });

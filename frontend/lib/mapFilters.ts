@@ -3,7 +3,7 @@
 // and the map agree by construction and the whole thing is unit-testable without
 // a DOM. The realtime feed is already in memory, so all of this runs client-side.
 
-import type { StuckAlert, VehiclePosition } from "@/lib/types";
+import type { VehiclePosition } from "@/lib/types";
 
 /** GTFS route_type values that mean rail: 0 tram/LRT, 1 subway, 2 commuter. */
 const RAIL_ROUTE_TYPES = new Set(["0", "1", "2"]);
@@ -28,8 +28,6 @@ export interface MapFilters {
   occupancy: string[];
   punctuality: PunctualityBand[];
   movement: MovementBand[];
-  /** Keep only vehicles flagged by the stuck-vehicle alert feed. */
-  stuckOnly: boolean;
 }
 
 export const EMPTY_MAP_FILTERS: MapFilters = {
@@ -40,7 +38,6 @@ export const EMPTY_MAP_FILTERS: MapFilters = {
   occupancy: [],
   punctuality: [],
   movement: [],
-  stuckOnly: false,
 };
 
 /**
@@ -96,16 +93,6 @@ export function occupancyKey(status: string | null | undefined): string {
   return status ?? "UNKNOWN";
 }
 
-/** Keys of the vehicles the stuck-vehicle feed is currently flagging. */
-export function stuckVehicleKeys(alerts: StuckAlert[] | undefined): Set<string> {
-  const keys = new Set<string>();
-  for (const a of alerts ?? []) {
-    if (a.vehicle_label) keys.add(a.vehicle_label);
-    if (a.vehicle_id) keys.add(a.vehicle_id);
-  }
-  return keys;
-}
-
 /** How many filter groups are narrowing the map — what the button badge shows. */
 export function countActiveMapFilters(f: MapFilters): number {
   return (
@@ -115,8 +102,7 @@ export function countActiveMapFilters(f: MapFilters): number {
     (f.headway.length > 0 ? 1 : 0) +
     (f.occupancy.length > 0 ? 1 : 0) +
     (f.punctuality.length > 0 ? 1 : 0) +
-    (f.movement.length > 0 ? 1 : 0) +
-    (f.stuckOnly ? 1 : 0)
+    (f.movement.length > 0 ? 1 : 0)
   );
 }
 
@@ -138,8 +124,7 @@ export function mapFiltersEqual(a: MapFilters, b: MapFilters): boolean {
     sameList(a.headway, b.headway) &&
     sameList(a.occupancy, b.occupancy) &&
     sameList(a.punctuality, b.punctuality) &&
-    sameList(a.movement, b.movement) &&
-    a.stuckOnly === b.stuckOnly
+    sameList(a.movement, b.movement)
   );
 }
 
@@ -151,7 +136,6 @@ export function mapFiltersEqual(a: MapFilters, b: MapFilters): boolean {
 export function applyMapFilters(
   vehicles: VehiclePosition[],
   f: MapFilters,
-  stuckKeys: Set<string> = new Set(),
 ): VehiclePosition[] {
   if (!mapFiltersActive(f)) return vehicles;
 
@@ -171,11 +155,6 @@ export function applyMapFilters(
     if (occupancy.size > 0 && !occupancy.has(occupancyKey(v.occupancy_status))) return false;
     if (punctuality.size > 0 && !punctuality.has(punctualityBand(v.delay_seconds))) return false;
     if (movement.size > 0 && !movement.has(movementBand(v.current_status))) return false;
-    if (f.stuckOnly) {
-      const label = v.vehicle_label;
-      const id = v.vehicle_id;
-      if (!(label && stuckKeys.has(label)) && !(id && stuckKeys.has(id))) return false;
-    }
     return true;
   });
 }
@@ -209,17 +188,13 @@ export interface MapFacets {
   occupancy: Record<string, number>;
   punctuality: Record<PunctualityBand, number>;
   movement: Record<MovementBand, number>;
-  stuck: number;
 }
 
 function bump<K extends string>(counts: Record<K, number>, key: K): void {
   counts[key] = (counts[key] ?? 0) + 1;
 }
 
-export function buildMapFacets(
-  vehicles: VehiclePosition[],
-  stuckKeys: Set<string> = new Set(),
-): MapFacets {
+export function buildMapFacets(vehicles: VehiclePosition[]): MapFacets {
   const routes = new Map<string, RouteFacet>();
   const vehicleFacets: VehicleFacet[] = [];
   const seenVehicles = new Set<string>();
@@ -245,7 +220,6 @@ export function buildMapFacets(
     incoming: 0,
     unknown: 0,
   } as Record<MovementBand, number>;
-  let stuck = 0;
 
   for (const v of vehicles) {
     const mode = modeOf(v.route_type);
@@ -254,12 +228,6 @@ export function buildMapFacets(
     bump(occupancy, occupancyKey(v.occupancy_status));
     bump(punctuality, punctualityBand(v.delay_seconds));
     bump(movement, movementBand(v.current_status));
-    if (
-      (v.vehicle_label && stuckKeys.has(v.vehicle_label)) ||
-      (v.vehicle_id && stuckKeys.has(v.vehicle_id))
-    ) {
-      stuck += 1;
-    }
 
     const existing = routes.get(v.route_id);
     if (existing) {
@@ -297,6 +265,5 @@ export function buildMapFacets(
     occupancy,
     punctuality,
     movement,
-    stuck,
   };
 }

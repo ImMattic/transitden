@@ -41,21 +41,3 @@ class FrequencyRouteStats(BaseModel):
 class FrequencyResponse(BaseModel):
     computed_at: datetime
     routes: list[FrequencyRouteStats]
-
-
-class StuckAlert(BaseModel):
-    vehicle_id: str | None
-    vehicle_label: str | None
-    route_id: str
-    route_short_name: str
-    latitude: float | None
-    longitude: float | None
-    stop_id: str | None
-    stop_name: str | None
-    stuck_since: datetime
-    minutes_stuck: float
-
-
-class AlertsResponse(BaseModel):
-    computed_at: datetime
-    alerts: list[StuckAlert]

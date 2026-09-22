@@ -12,7 +12,6 @@ import {
   fetchHistorical,
   fetchOnTime,
   fetchFrequency,
-  fetchAlerts,
   fetchOverview,
   fetchOnTimeTrend,
   fetchHeatmap,
@@ -103,15 +102,6 @@ export function useFrequency(scope?: RouteScope) {
   return useQuery({
     queryKey: ["frequency", scope],
     queryFn: () => fetchFrequency(scope),
-    refetchInterval: 30_000,
-    staleTime: 30_000,
-  });
-}
-
-export function useAlerts() {
-  return useQuery({
-    queryKey: ["alerts"],
-    queryFn: fetchAlerts,
     refetchInterval: 30_000,
     staleTime: 30_000,
   });
