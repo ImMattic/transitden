@@ -5,7 +5,6 @@ import type { VehiclePosition } from "@/lib/types";
 interface Props {
   vehicle: VehiclePosition;
   onClose: () => void;
-  isStuck?: boolean;
 }
 
 const STATUS_LABELS: Record<number, string> = {
@@ -14,7 +13,7 @@ const STATUS_LABELS: Record<number, string> = {
   2: "In transit to",
 };
 
-export default function VehicleDialog({ vehicle: v, onClose, isStuck = false }: Props) {
+export default function VehicleDialog({ vehicle: v, onClose }: Props) {
   const { resolvedTheme } = useTheme();
   const delay = v.delay_seconds ?? 0;
   const isLate = delay > 300;
@@ -61,10 +60,10 @@ export default function VehicleDialog({ vehicle: v, onClose, isStuck = false }: 
           <span
             className={cn(
               "rounded-full px-2 py-0.5 text-xs font-semibold",
-              isStuck ? "status-warn" : isLate ? "status-danger" : isEarly ? "status-warn" : "status-ok",
+              isLate ? "status-danger" : isEarly ? "status-warn" : "status-ok",
             )}
           >
-            {isStuck ? "Stuck" : isLate ? "Late" : isEarly ? "Early" : "On time"}
+            {isLate ? "Late" : isEarly ? "Early" : "On time"}
           </span>
           {delayText && <span className="font-mono text-fg-muted">{delayText}</span>}
 

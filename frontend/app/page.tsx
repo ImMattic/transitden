@@ -2,8 +2,8 @@
 import dynamic from "next/dynamic";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useVehicles, useStopInfo, useAlerts } from "@/lib/hooks";
-import type { StopInfo, StuckAlert, VehiclePosition } from "@/lib/types";
+import { useVehicles, useStopInfo } from "@/lib/hooks";
+import type { StopInfo, VehiclePosition } from "@/lib/types";
 import VehicleDialog from "@/components/map/VehicleDialog";
 import StopDialog from "@/components/map/StopDialog";
 import MapStatusBar from "@/components/map/MapStatusBar";
@@ -11,7 +11,6 @@ import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import {
   EMPTY_MAP_FILTERS,
   applyMapFilters,
-  stuckVehicleKeys,
   vehicleKey,
   type MapFilters,
 } from "@/lib/mapFilters";
@@ -24,7 +23,6 @@ const VehicleMap = dynamic(() => import("@/components/map/VehicleMap"), {
 
 function HomePageInner() {
   const { data, isLoading, isError, dataUpdatedAt } = useVehicles();
-  const { data: alertsData } = useAlerts();
   const [selected, setSelected] = useState<VehiclePosition | null>(null);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [searchFlyTo, setSearchFlyTo] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
@@ -100,16 +98,11 @@ function HomePageInner() {
 
   const vehicles = useMemo(() => data?.vehicles ?? [], [data?.vehicles]);
 
-  const stuckKeys = useMemo(
-    () => stuckVehicleKeys(alertsData?.alerts),
-    [alertsData?.alerts],
-  );
-
   // The map draws the filtered set; the status pill and the filter menu still
   // see the whole feed, so "12 of 987" and the per-option counts stay truthful.
   const visibleVehicles = useMemo(
-    () => applyMapFilters(vehicles, filters, stuckKeys),
-    [vehicles, filters, stuckKeys],
+    () => applyMapFilters(vehicles, filters),
+    [vehicles, filters],
   );
 
   // Picking a vehicle out of search or a deep link is an explicit request for
@@ -135,7 +128,6 @@ function HomePageInner() {
         dataUpdatedAt={dataUpdatedAt}
         filters={filters}
         onFiltersChange={setFilters}
-        stuckKeys={stuckKeys}
         onSelect={handleSearchSelect}
         onSelectStop={handleSearchStopSelect}
       />
@@ -166,13 +158,7 @@ function HomePageInner() {
 
         {/* Vehicle dialog — hidden while a stop dialog is open */}
         {selected && !selectedStop && (
-          <VehicleDialog
-            vehicle={selected}
-            onClose={() => setSelected(null)}
-            isStuck={alertsData?.alerts.some(
-              (a: StuckAlert) => a.vehicle_id === selected.vehicle_id || (a.vehicle_label && a.vehicle_label === selected.vehicle_label)
-            ) ?? false}
-          />
+          <VehicleDialog vehicle={selected} onClose={() => setSelected(null)} />
         )}
         {/* Stop dialog — closing it returns to vehicle dialog if one was open */}
         {selectedStop && (

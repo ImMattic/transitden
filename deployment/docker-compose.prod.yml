@@ -47,7 +47,6 @@ services:
       GTFS_RT_VEHICLE_URL: https://www.rtd-denver.com/files/gtfs-rt/VehiclePosition.pb
       GTFS_RT_TRIP_URL: https://www.rtd-denver.com/files/gtfs-rt/TripUpdate.pb
       POLLING_INTERVAL_SECONDS: "10"
-      STUCK_VEHICLE_MINUTES: "5"
       # Two vCPUs; only one worker ingests (see services/leader.py).
       UVICORN_WORKERS: "2"
       # SPORTS_SIM_PASSWORD is deliberately absent here (unlike staging).

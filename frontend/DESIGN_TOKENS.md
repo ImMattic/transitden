@@ -18,7 +18,7 @@ themes; only the lightness/chroma _step_ does (see §2).
 | **Interactive** (`--accent`) | links, focus, active nav, "info" state | `#41C1EF` | RTD Midblue  |
 | **Good** (`--ok`)            | on-time, healthy, positive delta       | `#009483` | RTD Teal     |
 | **Attention** (`--warn`)     | late-ish, degraded, needs a look       | `#F6871F` | RTD Orange   |
-| **Critical** (`--danger`)    | stuck vehicle, error, big negative     | `#CE0E2D` | RTD Red      |
+| **Critical** (`--danger`)    | very late, error, big negative         | `#CE0E2D` | RTD Red      |
 
 RTD's other brand/route colours (`rtd-blue`, `rtd-gold`, `rtd-a`…`rtd-w`, …) are
 **not** part of this system — they're fixed GTFS/brand values in

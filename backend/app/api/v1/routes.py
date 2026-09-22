@@ -221,12 +221,6 @@ def _load_rail_shapes() -> list[dict[str, Any]]:
     ]
 
 
-def shapes_for_route(route_id: str | None) -> list[list[list[float]]]:
-    """Every (simplified) shape polyline of one route, or ``[]`` if it has none."""
-    meta = _load_route_shapes_index().get(route_id or "")
-    return meta["shapes"] if meta else []
-
-
 def warm_shape_cache() -> None:
     """Populate the shape index cache (call at startup, off the event loop)."""
     _load_route_shapes_index()

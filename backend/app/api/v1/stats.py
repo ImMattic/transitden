@@ -1,34 +1,25 @@
-"""On-time performance, frequency, and stuck-vehicle alert endpoints."""
+"""On-time performance and frequency endpoints."""
 from __future__ import annotations
 
-import asyncio
-import math
-import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import ARRAY, String, bindparam, select, text
+from sqlalchemy import ARRAY, String, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import load_only
 
 from app.api.v1._date_range import resolve_range
 from app.api.v1._route_filter import resolve_route_ids
-from app.api.v1.routes import shapes_for_route
 from app.database import get_db
-from app.models.vehicle_position import VehiclePosition
 from app.schemas.stats import (
-    AlertsResponse,
     FrequencyResponse,
     FrequencyRouteStats,
     OnTimeResponse,
     OnTimeRouteStats,
     OverallOnTime,
-    StuckAlert,
 )
-from app.services.gtfs_decoder import load_gtfs_static_data, load_route_terminal_stops, load_trip_endpoint_sequences
-from app.services.route_geometry import distance_to_shapes_m
+from app.services.gtfs_decoder import load_gtfs_static_data
 from app.config import get_settings
 
 router = APIRouter(prefix="/stats", tags=["stats"])
@@ -207,203 +198,3 @@ async def frequency_stats(
         computed_at=datetime.now(tz=timezone.utc),
         routes=freq_stats,
     )
-
-
-# ── Stuck-vehicle alerts ───────────────────────────────────────────────────
-
-# Stuck-alert detection scans a ~36-min window and is polled every 30s by every
-# client; cache the assembled response so concurrent tabs share one scan. TTL
-# matches the client polling interval. The single-flight lock ensures N
-# concurrent cache misses run one scan, not N.
-_ALERTS_CACHE_TTL_SECONDS = 30.0
-_alerts_cache: tuple[float, AlertsResponse] | None = None
-_alerts_lock = asyncio.Lock()
-_trip_endpoint_stops: dict[str, tuple[str | None, str | None]] | None = None
-_route_terminal_stops: dict[str, set[str]] | None = None
-
-
-def _cached_alerts() -> AlertsResponse | None:
-    if _alerts_cache is not None and time.monotonic() - _alerts_cache[0] < _ALERTS_CACHE_TTL_SECONDS:
-        return _alerts_cache[1]
-    return None
-
-
-@router.get("/alerts", response_model=AlertsResponse)
-async def stuck_vehicle_alerts(
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> AlertsResponse:
-    hit = _cached_alerts()
-    if hit is not None:
-        return hit
-    async with _alerts_lock:
-        hit = _cached_alerts()
-        if hit is not None:
-            return hit
-        return await _build_alerts(db)
-
-
-async def _build_alerts(db: AsyncSession) -> AlertsResponse:
-    global _alerts_cache, _trip_endpoint_stops, _route_terminal_stops
-    mono = time.monotonic()
-
-    settings = get_settings()
-    threshold = timedelta(minutes=settings.stuck_vehicle_minutes)
-    window = threshold * 3  # look back far enough to check for movement
-
-    cutoff = datetime.now(tz=timezone.utc) - window
-
-    stmt = (
-        select(VehiclePosition)
-        .options(
-            load_only(
-                VehiclePosition.vehicle_id,
-                VehiclePosition.vehicle_label,
-                VehiclePosition.trip_id,
-                VehiclePosition.route_id,
-                VehiclePosition.latitude,
-                VehiclePosition.longitude,
-                VehiclePosition.current_status,
-                VehiclePosition.stop_id,
-                VehiclePosition.timestamp,
-            )
-        )
-        .where(VehiclePosition.timestamp >= cutoff)
-        .order_by(VehiclePosition.vehicle_id, VehiclePosition.timestamp.desc())
-    )
-    result = await db.execute(stmt)
-    rows = result.scalars().all()
-
-    # Group by vehicle key (prefer vehicle_id, fall back to trip_id)
-    veh_rows: dict[str, list[VehiclePosition]] = defaultdict(list)
-    for r in rows:
-        veh_rows[r.vehicle_id or r.trip_id or ""].append(r)
-
-    if _trip_endpoint_stops is None:
-        _, _trip_endpoint_stops = load_trip_endpoint_sequences()
-    if _route_terminal_stops is None:
-        _route_terminal_stops = load_route_terminal_stops()
-    routes_static, stops_static = load_gtfs_static_data()
-
-    now = datetime.now(tz=timezone.utc)
-    alerts: list[StuckAlert] = []
-
-    for vid, history in veh_rows.items():
-        if len(history) < 2:
-            continue
-        latest = history[0]
-        lat0, lon0 = latest.latitude, latest.longitude
-
-        # Skip vehicles with invalid GPS coordinates (e.g. tracker defaulting to 0,0).
-        if lat0 is None or lon0 is None or (abs(lat0) < 0.001 and abs(lon0) < 0.001):
-            continue
-
-        earliest_same_pos = latest.timestamp
-
-        # Walk backwards (history is already ordered newest-first) and collect
-        # the consecutive streak of rows at the same position.
-        streak: list[VehiclePosition] = [latest]
-        for prev in history[1:]:
-            if _positions_equal(lat0, lon0, prev.latitude, prev.longitude):
-                earliest_same_pos = prev.timestamp
-                streak.append(prev)
-            else:
-                break  # vehicle moved at some point in history
-
-        stationary_duration = now - earliest_same_pos
-        if stationary_duration < threshold:
-            continue
-
-        # Skip vehicles whose entire stuck streak shows STOPPED_AT (status 1).
-        # These are legitimate terminal/layover dwells — the vehicle is
-        # intentionally parked, not broken down or stuck in traffic.
-        streak_statuses = {r.current_status for r in streak if r.current_status is not None}
-        if streak_statuses and streak_statuses <= {1}:
-            continue
-
-        # Skip vehicles at or near the first/last stop of their trip.
-        # Fall back to route-level terminal stops when the live trip_id isn't
-        # in the static schedule (e.g. RTD added/modified trips).
-        if lat0 is not None and lon0 is not None:
-            terminal_stop_ids: set[str] | tuple[str | None, str | None] | None = None
-            if latest.trip_id and _trip_endpoint_stops is not None:
-                terminal_stop_ids = _trip_endpoint_stops.get(latest.trip_id)
-            if terminal_stop_ids is None and latest.route_id and _route_terminal_stops is not None:
-                terminal_stop_ids = _route_terminal_stops.get(latest.route_id)
-            if terminal_stop_ids:
-                # Normalize to a flat set of non-None stop IDs for uniform handling.
-                flat_terminals: set[str] = (
-                    terminal_stop_ids
-                    if isinstance(terminal_stop_ids, set)
-                    else {s for s in terminal_stop_ids if s}
-                )
-                at_terminal = False
-                if flat_terminals:
-                    # Direct match: the live feed reports the vehicle at a known
-                    # terminal stop_id.  This is more reliable than coordinates
-                    # because it doesn't depend on GPS precision or stop placement.
-                    if latest.stop_id and latest.stop_id in flat_terminals:
-                        at_terminal = True
-                    # Geofence fallback: vehicle coordinates within 300 m of a
-                    # terminal stop.  Radius is intentionally generous — bus
-                    # layover bays can sit well away from the stop marker.
-                    if not at_terminal:
-                        for sid in flat_terminals:
-                            sc = stops_static.get(sid, {})
-                            slat = sc.get("stop_lat", 0.0)
-                            slon = sc.get("stop_lon", 0.0)
-                            if slat and slon and _haversine_m(lat0, lon0, slat, slon) < 300:
-                                at_terminal = True
-                                break
-                if at_terminal:
-                    continue
-
-        # Skip vehicles that aren't on their route. A bus idling in the yard
-        # with its transponder on reports a fixed position too, but that's a
-        # parked bus, not one stuck in service. Checked last: it's the costliest
-        # test, so let the cheap ones thin the field first. A route with no known
-        # shape can't be verified, so it doesn't alert either.
-        if distance_to_shapes_m(lat0, lon0, shapes_for_route(latest.route_id)) > settings.stuck_route_max_distance_m:
-            continue
-
-        stop_info = stops_static.get(latest.stop_id or "", {})
-        route_info = routes_static.get(latest.route_id, {})
-        alerts.append(
-            StuckAlert(
-                vehicle_id=latest.vehicle_id,
-                vehicle_label=latest.vehicle_label,
-                route_id=latest.route_id,
-                route_short_name=route_info.get("route_short_name", latest.route_id),
-                latitude=latest.latitude,
-                longitude=latest.longitude,
-                stop_id=latest.stop_id,
-                stop_name=stop_info.get("stop_name"),
-                stuck_since=earliest_same_pos,
-                minutes_stuck=round(stationary_duration.total_seconds() / 60, 1),
-            )
-        )
-
-    response = AlertsResponse(computed_at=now, alerts=alerts)
-    _alerts_cache = (mono, response)
-    return response
-
-
-def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Return great-circle distance in meters between two lat/lon points."""
-    R = 6_371_000
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlam = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-
-def _positions_equal(
-    lat1: float | None,
-    lon1: float | None,
-    lat2: float | None,
-    lon2: float | None,
-    tolerance: float = 0.0002,
-) -> bool:
-    if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
-        return False
-    return abs(lat1 - lat2) < tolerance and abs(lon1 - lon2) < tolerance

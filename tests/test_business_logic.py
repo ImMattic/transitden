@@ -9,39 +9,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.api.v1.stats import _positions_equal
 from app.api.v1.realtime import _compute_headways, _enrich
 from app.models.vehicle_position import VehiclePosition
-
-
-# ── _positions_equal ──────────────────────────────────────────────────────────
-
-def test_positions_equal_within_tolerance():
-    assert _positions_equal(39.7392, -104.9903, 39.7393, -104.9903) is True
-
-
-def test_positions_equal_outside_tolerance():
-    assert _positions_equal(39.7392, -104.9903, 39.7400, -104.9903) is False
-
-
-def test_positions_equal_exact():
-    assert _positions_equal(39.0, -104.0, 39.0, -104.0) is True
-
-
-def test_positions_equal_none_lat1():
-    assert _positions_equal(None, -104.9903, 39.7392, -104.9903) is False
-
-
-def test_positions_equal_none_lat2():
-    assert _positions_equal(39.7392, -104.9903, None, -104.9903) is False
-
-
-def test_positions_equal_all_none():
-    assert _positions_equal(None, None, None, None) is False
-
-
-def test_positions_equal_lon_outside_tolerance():
-    assert _positions_equal(39.7392, -104.9903, 39.7392, -104.9910) is False
 
 
 # ── _compute_headways ─────────────────────────────────────────────────────────

@@ -23,8 +23,9 @@ squeezing it in alongside smaller changes.
     - [ ] Estimate arrival times at stops using current bus position and traffic data.
 
 ## Unofficial Alerts
-- [ ] Detect and display alerts for vehicles stuck >5 minutes.
-    - [ ] Integrate with Transit App API to confirm stuck status when GTFS-RT is unreliable.
+**Dropped.** Stuck-vehicle detection was removed entirely — see Known Fixes below.
+- [X] ~~Detect and display alerts for vehicles stuck >5 minutes.~~
+    - [X] ~~Integrate with Transit App API to confirm stuck status when GTFS-RT is unreliable.~~
 
 ## Event & Game Awareness
 Surface local sporting events so riders can anticipate delays and crowds.
@@ -84,7 +85,7 @@ Shipped for sports via ESPN's unofficial scoreboard API — see
 ## Known Fixes
 - [X] Outline the selected vehicle in white to improve visibility against the map background.
 - [X] Remove vehicles with no average headway from Current Frequency list on the Dashboard
-- [ ] Vehicle stuck logic still needs fixing so that it isn't included on the Stuck Vehicle Alerts if it is near one of its endpoints (e.g., Union Station for the A Line). Separately, the alert count runs higher than seems believable, and the suspicion is that the GTFS-RT feed itself is the cause rather than genuinely stuck vehicles. Decide first whether stuck alerts are worth keeping at all; if the feed can't support them honestly, dropping the feature is on the table.
+- [X] Vehicle stuck logic: **feature removed.** Repeated reworks never made it honest — the endpoint and off-route guards each fixed one class of false positive and exposed another, and the alert count stayed higher than was believable. Two root causes, neither fixable from our side: the GTFS-RT feed repeats stale positions, and a vehicle legitimately holding at a stop (operator recovery time, restroom break) is indistinguishable from a broken-down one. A feed that can't tell "stopped" from "stuck" can't support the feature, so it's gone rather than permanently wrong. The Dashboard's KPI slot now shows **Service Delivered %** and the bottom card shows **Service Delivery by Route** (both already computed by `/analytics/overview` and `/analytics/service-delivery`).
 - [X] Remove duplicate "On time" tag from the Vehicle Dialog box
 - [X] Rework On-time logic to be more accurate
 - [X] Include link to schedule on RTD website in Vehicle Dialog box

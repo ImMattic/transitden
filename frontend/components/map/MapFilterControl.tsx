@@ -7,7 +7,6 @@ import {
   FilterIcon,
   FilterOptionList,
   FilterSection,
-  FilterToggle,
   withSelectedOptions,
   type ChipOption,
   type ListOption,
@@ -33,8 +32,6 @@ interface Props {
   vehicles: VehiclePosition[];
   filters: MapFilters;
   onChange: (filters: MapFilters) => void;
-  /** Vehicle labels/ids the stuck-vehicle feed is flagging. */
-  stuckKeys: Set<string>;
 }
 
 /** The multi-select groups — every `MapFilters` key holding a list of values. */
@@ -84,7 +81,7 @@ const MOVEMENT_BANDS: { value: MovementBand; label: string }[] = [
  * vehicles the draft would leave. Reset clears and commits at once, because a
  * Reset that needed a second confirming click reads as broken.
  */
-export default function MapFilterControl({ vehicles, filters, onChange, stuckKeys }: Props) {
+export default function MapFilterControl({ vehicles, filters, onChange }: Props) {
   const { resolvedTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<MapFilters>(filters);
@@ -95,11 +92,11 @@ export default function MapFilterControl({ vehicles, filters, onChange, stuckKey
     if (!open) setDraft(filters);
   }, [open, filters]);
 
-  const facets = useMemo(() => buildMapFacets(vehicles, stuckKeys), [vehicles, stuckKeys]);
+  const facets = useMemo(() => buildMapFacets(vehicles), [vehicles]);
 
   const previewCount = useMemo(
-    () => applyMapFilters(vehicles, draft, stuckKeys).length,
-    [vehicles, draft, stuckKeys],
+    () => applyMapFilters(vehicles, draft).length,
+    [vehicles, draft],
   );
 
   const appliedCount = countActiveMapFilters(filters);
@@ -330,16 +327,6 @@ export default function MapFilterControl({ vehicles, filters, onChange, stuckKey
             selected={draft.movement}
             onToggle={(v) => toggle("movement", v)}
             hideEmpty
-          />
-        </FilterSection>
-
-        <FilterSection stagger={280} title="Alerts" activeCount={draft.stuckOnly ? 1 : 0}>
-          <FilterToggle
-            label="Stuck vehicles only"
-            hint="Vehicles that haven't moved long enough to trip the stationary alert."
-            count={facets.stuck}
-            checked={draft.stuckOnly}
-            onChange={(checked) => setDraft((d) => ({ ...d, stuckOnly: checked }))}
           />
         </FilterSection>
       </FilterPanel>

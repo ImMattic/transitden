@@ -48,7 +48,6 @@ services:
       GTFS_RT_VEHICLE_URL: https://www.rtd-denver.com/files/gtfs-rt/VehiclePosition.pb
       GTFS_RT_TRIP_URL: https://www.rtd-denver.com/files/gtfs-rt/TripUpdate.pb
       POLLING_INTERVAL_SECONDS: "10"
-      STUCK_VEHICLE_MINUTES: "5"
       # Enables the unlisted /sim game simulator. Unset ⇒ simulator disabled.
       SPORTS_SIM_PASSWORD: ${SPORTS_SIM_PASSWORD:-}
       CORS_ORIGINS: '["http://localhost:3000"]'

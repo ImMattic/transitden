@@ -4,7 +4,6 @@ import type {
   RealtimeResponse,
   OnTimeResponse,
   FrequencyResponse,
-  AlertsResponse,
   RoutesResponse,
   RailShapesResponse,
   HistoricalResponse,
@@ -54,19 +53,6 @@ const MOCK_FREQUENCY_ROUTE = {
   min_headway_minutes: 10.0,
   max_headway_minutes: 15.0,
   vehicle_count: 8,
-};
-
-const MOCK_ALERT = {
-  vehicle_id: "V1",
-  vehicle_label: "101",
-  route_id: "R1",
-  route_short_name: "15L",
-  latitude: 39.7392,
-  longitude: -104.9903,
-  stop_id: "S1",
-  stop_name: "Colfax & Broadway",
-  stuck_since: "2026-06-20T11:45:00Z",
-  minutes_stuck: 15.0,
 };
 
 export const handlers = [
@@ -138,13 +124,6 @@ export const handlers = [
     HttpResponse.json<FrequencyResponse>({
       computed_at: "2026-06-20T12:00:00Z",
       routes: [MOCK_FREQUENCY_ROUTE],
-    })
-  ),
-
-  http.get("/api/v1/stats/alerts", () =>
-    HttpResponse.json<AlertsResponse>({
-      computed_at: "2026-06-20T12:00:00Z",
-      alerts: [],
     })
   ),
 
