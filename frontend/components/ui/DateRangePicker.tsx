@@ -20,6 +20,13 @@ import {
   type FieldBounds,
   type RangeLimits,
 } from "@/lib/dateRange";
+import {
+  dayPackedFraction,
+  dayTier,
+  formatDays,
+  rangeSpeedHeadline,
+  rangeTierSummary,
+} from "@/lib/storageTier";
 
 interface Props {
   /** `"YYYY-MM-DDTHH:mm"` in local time. */
@@ -29,6 +36,16 @@ interface Props {
   limits: RangeLimits;
   now: Date;
   id?: string;
+  /**
+   * The vehicle_positions packed/loose boundary from /api/v1/meta/storage —
+   * `undefined` while that request is still loading, `null` once it's known
+   * to be unavailable. Either way the "why does this take longer" notice
+   * below just doesn't render; there's no separate loading state to show.
+   * Trip Explorer only — the Dashboard's own date-range field reads
+   * pre-rolled aggregates, where window width barely moves latency, so it
+   * has no matching prop.
+   */
+  looseSince?: string | null;
 }
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -54,6 +71,18 @@ function hourLabel(h: number): string {
   return String(h).padStart(2, "0");
 }
 
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .199.079.39.22.53l3 3a.75.75 0 101.06-1.06l-2.78-2.78V5z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 type RangeRole = "start" | "end" | "single" | "in-range" | "none";
 
 /**
@@ -67,7 +96,7 @@ type RangeRole = "start" | "end" | "single" | "in-range" | "none";
  * draft — mirroring the old field's "pick, it's applied" behaviour. The page's
  * own "Load trips" button is still what turns a committed range into a fetch.
  */
-export default function DateRangePicker({ start, end, onChange, limits, now, id }: Props) {
+export default function DateRangePicker({ start, end, onChange, limits, now, id, looseSince }: Props) {
   const isPhone = useIsPhone();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -90,12 +119,18 @@ export default function DateRangePicker({ start, end, onChange, limits, now, id 
   const [pendingStart, setPendingStart] = useState<Date | null>(null);
   const [hoverDay, setHoverDay] = useState<Date | null>(null);
 
+  // The "why does this take longer" disclosure — collapsed by default (see
+  // lib/storageTier.ts), reset whenever the panel is reopened so it never
+  // stays pinned open across an unrelated visit.
+  const [tierExplained, setTierExplained] = useState(false);
+
   const [viewMonth, setViewMonth] = useState<Date>(() => startOfDay(startDate ?? now));
 
   useEffect(() => {
     if (open) {
       setPendingStart(null);
       setHoverDay(null);
+      setTierExplained(false);
       const anchor = startDate ?? now;
       setViewMonth(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
     }
@@ -300,6 +335,19 @@ export default function DateRangePicker({ start, end, onChange, limits, now, id 
     return isWithin(at, endBoundsMin, endBoundsMax);
   };
 
+  // Undefined (still loading /meta/storage) and null (known unavailable) both
+  // resolve to `known: false`, so there's nothing extra to branch on here —
+  // rangeSpeedHeadline already returns null for both, which hides the notice.
+  const tierSummary = useMemo(
+    () => rangeTierSummary(start, end, looseSince ?? null),
+    [start, end, looseSince],
+  );
+  const tierHeadline = rangeSpeedHeadline(tierSummary);
+  // The per-day bands under the calendar numbers are the mechanism view, so
+  // they only appear once the "why" disclosure is open — never load-bearing
+  // for picking a range, only for explaining why one is slower than another.
+  const showTierBands = Boolean(tierExplained && looseSince);
+
   const days = useMemo(() => calendarDays(viewMonth), [viewMonth]);
   const todayStart = startOfDay(now).getTime();
 
@@ -399,17 +447,26 @@ export default function DateRangePicker({ start, end, onChange, limits, now, id 
             // it reads as dimmed rather than either full-strength or struck
             // through.
             const tooFarForward = Boolean(maxEnd && day.getTime() > maxEnd.getTime());
+            // Only meaningful for a day real data could exist on — a day
+            // outside the retention window or past "now" has no chunk to
+            // report a tier for, regardless of what the boundary math says.
+            const tier = showTierBands && selectable ? dayTier(day, looseSince ?? null) : null;
             return (
               <button
                 key={day.toISOString()}
                 type="button"
                 disabled={!selectable}
                 aria-current={isEndpoint ? "date" : undefined}
-                aria-label={FULL_DATE.format(day)}
+                aria-label={
+                  tier
+                    ? `${FULL_DATE.format(day)}, ${tier === "loose" ? "not yet packed" : tier === "packed" ? "packed" : "packed part of the day"}`
+                    : FULL_DATE.format(day)
+                }
                 onClick={() => handleDayClick(day)}
                 onMouseEnter={() => setHoverDay(day)}
                 className={cn(
-                  "grid h-8 place-items-center text-sm tabular-nums transition-colors",
+                  "flex flex-col items-center justify-center gap-0.5 text-sm tabular-nums transition-colors",
+                  showTierBands ? "h-9" : "h-8",
                   // Each role owns its own corner radius rather than one
                   // class overriding another — with plain clsx (no
                   // tailwind-merge) two conflicting radius utilities on one
@@ -440,7 +497,45 @@ export default function DateRangePicker({ start, end, onChange, limits, now, id 
                   role === "none" && isToday && selectable && "ring-1 ring-inset ring-line-strong",
                 )}
               >
-                {day.getDate()}
+                <span>{day.getDate()}</span>
+                {tier &&
+                  (isEndpoint ? (
+                    // The cap itself is a solid accent fill, so an
+                    // accent-colored band would vanish into it — shade by the
+                    // cap's own ink color instead, varying opacity rather than
+                    // hue so the tier is still legible on top of the pick.
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "h-[3px] w-4 rounded-full bg-accent-ink",
+                        tier === "loose" && "opacity-35",
+                        tier === "packed" && "opacity-70",
+                      )}
+                      style={
+                        tier === "mixed"
+                          ? {
+                              background: `linear-gradient(to right, rgb(var(--accent-ink) / 0.7) 0%, rgb(var(--accent-ink) / 0.7) ${dayPackedFraction(day, looseSince as string) * 100}%, rgb(var(--accent-ink) / 0.35) ${dayPackedFraction(day, looseSince as string) * 100}%, rgb(var(--accent-ink) / 0.35) 100%)`,
+                            }
+                          : undefined
+                      }
+                    />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "h-[3px] w-4 rounded-full",
+                        tier === "loose" && "bg-accent",
+                        tier === "packed" && "bg-line-strong",
+                      )}
+                      style={
+                        tier === "mixed"
+                          ? {
+                              background: `linear-gradient(to right, rgb(var(--line-2)) 0%, rgb(var(--line-2)) ${dayPackedFraction(day, looseSince as string) * 100}%, rgb(var(--accent)) ${dayPackedFraction(day, looseSince as string) * 100}%, rgb(var(--accent)) 100%)`,
+                            }
+                          : undefined
+                      }
+                    />
+                  ))}
               </button>
             );
           });
@@ -504,6 +599,52 @@ export default function DateRangePicker({ start, end, onChange, limits, now, id 
                 </option>
               ))}
             </select>
+          </div>
+        </div>
+      )}
+
+      {tierHeadline && (
+        <div className="mt-3 flex items-start gap-2 rounded-md bg-raised p-2.5">
+          <ClockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-subtle" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-fg">{tierHeadline}</p>
+            <button
+              type="button"
+              onClick={() => setTierExplained((v) => !v)}
+              className="mt-1 text-xs font-medium text-accent hover:underline"
+            >
+              {tierExplained ? "Hide" : "Why do older dates take longer?"}
+            </button>
+            {tierExplained && (
+              <div className="mt-2 space-y-2 border-t border-line pt-2 text-xs leading-relaxed text-fg-muted">
+                <p>
+                  TransitDen saves the location of every vehicle every 30 seconds. To keep
+                  that much history around, records are packed down about a day after they
+                  arrive — much smaller on disk, but slower to unpack back into individual
+                  trips.
+                </p>
+                <div className="space-y-1">
+                  {tierSummary.packedDays > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="h-1 w-4 shrink-0 rounded-full bg-line-strong" />
+                      <span className="flex-1">Packed, slower to read</span>
+                      <span className="font-mono tabular-nums text-fg-subtle">
+                        {formatDays(tierSummary.packedDays)}
+                      </span>
+                    </div>
+                  )}
+                  {tierSummary.looseDays > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="h-1 w-4 shrink-0 rounded-full bg-accent" />
+                      <span className="flex-1">Still loose, fastest to read</span>
+                      <span className="font-mono tabular-nums text-fg-subtle">
+                        {formatDays(tierSummary.looseDays)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -191,18 +191,18 @@ export function delayColor(seconds: number, mode: ResolvedTheme = "dark"): strin
   return "#EC3A35";
 }
 
-/** Service-delivered-vs-scheduled percentage → bar color, re-stepped per theme. */
-export function deliveredColor(pct: number, mode: ResolvedTheme = "dark"): string {
+/** Crowding percentage (share of samples standing/crushed/full+) → color, higher is worse. */
+export function crowdingColor(pct: number, mode: ResolvedTheme = "dark"): string {
   if (mode === "light") {
-    if (pct >= 95) return "#16a34a";
-    if (pct >= 85) return "#65a30d";
-    if (pct >= 70) return "#ea580c";
-    return "#dc2626";
+    if (pct >= 70) return "#dc2626";
+    if (pct >= 45) return "#ea580c";
+    if (pct >= 20) return "#eab308";
+    return "#16a34a";
   }
-  if (pct >= 95) return "#16a34a";
-  if (pct >= 85) return "#65a30d";
-  if (pct >= 70) return "#ea580c";
-  return "#EC3A35";
+  if (pct >= 70) return "#EC3A35";
+  if (pct >= 45) return "#f97316";
+  if (pct >= 20) return "#eab308";
+  return "#16a34a";
 }
 
 /** Compact integer with thousands separators (e.g. 12,345). */

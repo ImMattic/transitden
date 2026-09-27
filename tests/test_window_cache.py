@@ -236,3 +236,23 @@ async def test_sorting_is_applied_before_paging_and_leaves_the_cache_alone(clien
 
     cached_trips, _ = next(iter(vehicles._window_cache.values()))[1:]
     assert [t["trip_id"] for t in cached_trips] == [f"trip{i}" for i in range(30)]
+
+
+async def test_response_reports_the_time_this_request_actually_took(
+    client, stub_build, _fresh_cache, monkeypatch
+):
+    """query_ms is measured per-request, not a stored/predicted figure — a
+    cache hit should read back near-zero, distinct from the build that filled it."""
+    clock = _fresh_cache
+
+    async def slow_fake(db, start, end, wanted_routes, strict):
+        clock.now += 2.5
+        return window_of(1), {"trip_count": 1}
+
+    monkeypatch.setattr(vehicles, "_build_window", slow_fake)
+    first = (await client.get(f"/api/v1/vehicles/active?start={START}&end={END}")).json()
+    assert first["query_ms"] >= 2500
+
+    clock.now += 0.001
+    second = (await client.get(f"/api/v1/vehicles/active?start={START}&end={END}")).json()
+    assert second["query_ms"] < 100

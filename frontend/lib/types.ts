@@ -13,6 +13,22 @@ export interface LimitsResponse {
   data_retention_days: number;
 }
 
+/**
+ * From /api/v1/meta/storage: per-hypertable boundary between TimescaleDB's
+ * compressed ("packed") and still-uncompressed ("loose") chunks. Backs the
+ * Trip Explorer's date-range picker only — see lib/storageTier.ts, which turns
+ * this into the plain-language line and the "why" disclosure.
+ *
+ * `available` is false wherever the catalog this reads doesn't exist (it's a
+ * TimescaleDB-only view), in which case both tables' `loose_since` are null
+ * and the picker should say nothing about tiers rather than guess.
+ */
+export interface StorageResponse {
+  available: boolean;
+  vehicle_positions: { loose_since: string | null };
+  trip_updates: { loose_since: string | null };
+}
+
 export interface RailShape {
   route_id: string;
   short_name: string;
@@ -188,9 +204,6 @@ export interface OverviewResponse {
   on_time_pct: MetricWithDelta;
   avg_delay_seconds: MetricWithDelta;
   delay_stddev_seconds: number;
-  service_delivered_pct: MetricWithDelta;
-  observed_trips: number;
-  scheduled_trips: number;
   routes_tracked: number;
   total_observations: number;
   latest_ridership_month: string | null;
@@ -265,24 +278,6 @@ export interface WorstStopsResponse {
   stops: WorstStop[];
 }
 
-export interface ServiceDeliveryRoute {
-  route_id: string;
-  route_short_name: string;
-  observed_trips: number;
-  scheduled_trips: number;
-  delivered_pct: number;
-}
-
-export interface ServiceDeliveryResponse {
-  period_days: number;
-  range_start?: string;
-  range_end?: string;
-  observed_trips: number;
-  scheduled_trips: number;
-  delivered_pct: number;
-  routes: ServiceDeliveryRoute[];
-}
-
 export interface HourHeadway {
   hour: number;
   headway_minutes: number | null;
@@ -344,6 +339,21 @@ export interface OccupancyResponse {
   standing_pct: number | null;
   by_hour: OccupancyHourPoint[];
   directions: DirectionInfo[];
+}
+
+export interface BusynessResponse {
+  period_days: number;
+  range_start?: string;
+  range_end?: string;
+  reported: boolean;
+  granularity: "hour" | "day";
+  busiest_hour: number | null;
+  busiest_hour_pct: number | null;
+  busiest_day: string | null;
+  busiest_day_pct: number | null;
+  busiest_route_id: string | null;
+  busiest_route_name: string | null;
+  busiest_route_pct: number | null;
 }
 
 // ── Vehicle drill-down ───────────────────────────────────────────────────────
@@ -422,6 +432,9 @@ export interface ActiveVehiclesResponse {
   window_count: number;
   vehicles: ActiveVehicle[];
   facets: TripFacets;
+  /** Wall-clock time this request actually took server-side, measured (not
+   *  predicted) — near-zero on a cached window, real on a fresh scan. */
+  query_ms: number;
 }
 
 export interface VehicleStopEvent {

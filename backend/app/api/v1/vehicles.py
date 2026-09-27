@@ -465,6 +465,10 @@ async def get_active_vehicles(
     # A window with no explicit end is anchored to "now", so it never repeats.
     ttl = _window_ttl(end, now) if end_given else 0
     key = (start, end, strict, tuple(sorted(wanted_routes)))
+    # Measured, not predicted: whatever this request actually paid — cache hit
+    # or not — is what "loaded in Xs" reports back. See lib/storageTier.ts for
+    # the separate, unmeasured "why" explanation shown alongside it.
+    _t0 = _time.monotonic()
     trips, facets = await _cached_window(
         key, ttl, lambda: _build_window(db, start, end, wanted_routes, strict)
     )
@@ -503,6 +507,7 @@ async def get_active_vehicles(
     for t in page:
         t["last_delay_seconds"] = delay_map.get(t["trip_id"] or "")
 
+    query_ms = round((_time.monotonic() - _t0) * 1000)
     return {
         "start": start.isoformat(),
         "end": end.isoformat(),
@@ -510,6 +515,7 @@ async def get_active_vehicles(
         "window_count": len(trips),
         "vehicles": page,
         "facets": facets,
+        "query_ms": query_ms,
     }
 
 
