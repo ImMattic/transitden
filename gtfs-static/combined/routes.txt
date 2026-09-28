@@ -1,0 +1,131 @@
+route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_url,route_color,route_text_color
+0,RTD,0,Broadway,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/0,0076CE,FFFFFF
+0B,RTD,0B,South Broadway,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/0B,0076CE,FFFFFF
+0L,RTD,0L,South Broadway Limited,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/0L,0076CE,FFFFFF
+1,RTD,1,West 1st Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/1,0076CE,FFFFFF
+10,RTD,10,East 12th Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/10,0076CE,FFFFFF
+100,RTD,100,Kipling Street,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/100,0076CE,FFFFFF
+101C,RTD,C,Union Station to Mineral Station,This Route Travels Northbound & Southbound,0,https://app.rtd-denver.com/nextride/route/C,F79239,FFFFFF
+101D,RTD,D,18th&California Station to Mineral Station,This Route Travels Northbound & Southbound,0,https://app.rtd-denver.com/nextride/route/D,008348,FFFFFF
+101E,RTD,E,Union Station to RidgeGate Parkway Station,This Route Travels Northbound & Southbound,0,https://app.rtd-denver.com/nextride/route/E,552683,FFFFFF
+101T,RTD,T,Lincoln Station to Alameda Station,This Route Travels Northbound & Southbound,0,https://app.rtd-denver.com/nextride/route/T,B71318,FFFFFF
+103W,RTD,W,Union Station to Jefferson County Government Center-Golden Station,This Route Travels Eastbound & Westbound,0,https://app.rtd-denver.com/nextride/route/W,009DAA,FFFFFF
+104L,RTD,104L,Wagon Road / Denver Airport Limited,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/104L,0076CE,FFFFFF
+105,RTD,105,Havana Street,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/105,0076CE,FFFFFF
+107R,RTD,R,RidgeGate Parkway Station to Peoria Station,This Route Travels Northbound & Southbound,0,https://app.rtd-denver.com/nextride/route/R,C4D600,000000
+11,RTD,11,Mississippi Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/11,0076CE,FFFFFF
+112,RTD,112,West 112th Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/112,0076CE,FFFFFF
+113B,RTD,B,Union Station to Westminster Station,This Route Travels Eastbound & Westbound,2,https://app.rtd-denver.com/nextride/route/B,4E9D2D,FFFFFF
+113G,RTD,G,Union Station to Wheat Ridge Ward Station,This Route Travels Eastbound & Westbound,2,https://app.rtd-denver.com/nextride/route/G,F6B221,FFFFFF
+116X,RTD,116X,South Simms Express,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/116X,64A70B,FFFFFF
+117N,RTD,N,Union Station to Eastlake & 124th Station,This Route Travels Northbound & Southbound,2,https://app.rtd-denver.com/nextride/route/N,9F26B5,FFFFFF
+12,RTD,12,South Downing,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/12,0076CE,FFFFFF
+120,RTD,120,120th Avenue Crosstown,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/120,0076CE,FFFFFF
+120L,RTD,120L,Thornton / Brighton,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/120L,0076CE,FFFFFF
+120X,RTD,120X,Wagon Road / Thornton Express,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/120X,64A70B,FFFFFF
+121,RTD,121,Peoria Street,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/121,0076CE,FFFFFF
+130,RTD,130,Yale / Buckley,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/130,0076CE,FFFFFF
+133,RTD,133,Hampden/Tower,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/133,0076CE,FFFFFF
+135,RTD,135,Smoky Hill Road,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/135,0076CE,FFFFFF
+139,RTD,139,Quincy Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/139,0076CE,FFFFFF
+14,RTD,14,West Florida Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/14,0076CE,FFFFFF
+145X,RTD,145X,Brighton / Denver Airport ,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/145X,64A70B,FFFFFF
+15,RTD,15,East Colfax Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/15,0076CE,FFFFFF
+153,RTD,153,Chambers Road,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/153,0076CE,FFFFFF
+15L,RTD,15L,East Colfax Limited,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/15L,0076CE,FFFFFF
+16,RTD,16,West Colfax Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/16,0076CE,FFFFFF
+169,RTD,169,Buckley Road,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/169,0076CE,FFFFFF
+169L,RTD,169L,Buckley / Tower DIA Limited,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/169L,0076CE,FFFFFF
+17,RTD,17,Golden/Colfax,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/17,0076CE,FFFFFF
+19,RTD,19,North Pecos ,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/19,0076CE,FFFFFF
+20,RTD,20,20th Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/20,0076CE,FFFFFF
+204,RTD,204,Table Mesa / Moorhead / North 19th,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/204,0076CE,FFFFFF
+205,RTD,205,28th St / Gunbarrel ,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/205,0076CE,FFFFFF
+206,RTD,206,Conestoga/ Arapahoe / Fairview H.S.,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/206,0076CE,FFFFFF
+208,RTD,208,Iris / Valmont,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/208,0076CE,FFFFFF
+21,RTD,21,East Evans Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/21,0076CE,FFFFFF
+22,RTD,22,West Evans Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/22,0076CE,FFFFFF
+225,RTD,225,Boulder / Lafayette via Baseline,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/225,0076CE,FFFFFF
+225D,RTD,225D,Boulder / Lafayette via Baseline,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/225D,0076CE,FFFFFF
+225T,RTD,225T,Boulder / Lafayette via Baseline,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/225T,0076CE,FFFFFF
+228A,RTD,228A,Lafayette / Louisville / Broomfield,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/228A,0076CE,FFFFFF
+228F,RTD,228F,Lafayette / Louisville / Broomfield,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/228F,0076CE,FFFFFF
+23,RTD,23,West 20th Ave,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/23,0076CE,FFFFFF
+24,RTD,24,University Blvd,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/24,0076CE,FFFFFF
+28,RTD,28,28th Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/28,0076CE,FFFFFF
+287,RTD,287,Longmont / Broomfield,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/287,64A70B,FFFFFF
+3,RTD,3,Alameda Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/3,0076CE,FFFFFF
+30,RTD,30,South Federal Blvd,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/30,0076CE,FFFFFF
+31,RTD,31,Federal Blvd ,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/31,0076CE,FFFFFF
+32,RTD,32,West 32nd Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/32,0076CE,FFFFFF
+323,RTD,323,Skyline Crosstown,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/323,0076CE,FFFFFF
+324,RTD,324,Main Street Crosstown,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/324,0076CE,FFFFFF
+326,RTD,326,Westside Crosstown,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/326,0076CE,FFFFFF
+327,RTD,327,Eastside Crosstown,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/327,0076CE,FFFFFF
+35,RTD,35,Hampden Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/35,0076CE,FFFFFF
+36,RTD,36,Fort Logan,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/36,0076CE,FFFFFF
+37,RTD,37,Smith Road Industrial,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/37,0076CE,FFFFFF
+38,RTD,38,West 38th Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/38,0076CE,FFFFFF
+3L,RTD,3L,East Alameda Limited,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/3L,0076CE,FFFFFF
+4,RTD,4,Morrison Road,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/4,0076CE,FFFFFF
+40,RTD,40,Colorado Boulevard,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/40,0076CE,FFFFFF
+402L,RTD,402L,Highlands Ranch Parkway,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/402L,0076CE,FFFFFF
+42,RTD,42,Montbello via Albrook/GVR,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/42,0076CE,FFFFFF
+43,RTD,43,Martin Luther King Blvd,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/43,0076CE,FFFFFF
+44,RTD,44,44th Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/44,0076CE,FFFFFF
+45,RTD,45,Montbello via 51st/GVR,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/45,0076CE,FFFFFF
+46,RTD,46,South Dahlia,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/46,0076CE,FFFFFF
+48,RTD,48,East 48th Avenue / Commerce City,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/48,0076CE,FFFFFF
+483,RTD,483,Parker Road - Lincoln Ave,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/483,0076CE,FFFFFF
+49,RTD,49,Denver/ Commerce City,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/49,0076CE,FFFFFF
+51,RTD,51,Sheridan Blvd,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/51,0076CE,FFFFFF
+52,RTD,52,W 52nd Avenue / South Bannock,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/52,0076CE,FFFFFF
+520,RTD,520,Brighton,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/520,0076CE,FFFFFF
+53,RTD,53,North Sheridan,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/53,0076CE,FFFFFF
+59,RTD,59,West Bowles,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/59,0076CE,FFFFFF
+6,RTD,6,East 6th Avenue ,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/6,0076CE,FFFFFF
+65,RTD,65,Monaco Parkway,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/65,0076CE,FFFFFF
+66,RTD,66,Arapahoe Road,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/66,0076CE,FFFFFF
+7,RTD,7,North Washington,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/7,0076CE,FFFFFF
+72,RTD,72,72nd Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/72,0076CE,FFFFFF
+73,RTD,73,Quebec Street,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/73,0076CE,FFFFFF
+76,RTD,76,Wadsworth Blvd,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/76,0076CE,FFFFFF
+8,RTD,8,North Broadway / Huron,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/8,0076CE,FFFFFF
+80,RTD,80,80th Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/80,0076CE,FFFFFF
+83D,RTD,83D,Cherry Creek / Parker Rd Limited,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/83D,0076CE,FFFFFF
+83L,RTD,83L,Cherry Creek / Parker Rd Limited,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/83L,0076CE,FFFFFF
+88,RTD,88,Central Park/ 72nd Ave Station,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/88,0076CE,FFFFFF
+88L,RTD,88L,Thornton/Commerce City Limited,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/88L,0076CE,FFFFFF
+9,RTD,9,West 10th Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/9,0076CE,FFFFFF
+92,RTD,92,92nd Avenue,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/92,0076CE,FFFFFF
+93L,RTD,93L,N Colorado Blvd Limited,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/93L,0076CE,FFFFFF
+99,RTD,99,South Kipling Street,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/99,0076CE,FFFFFF
+A,RTD,A,Union Station to Denver Airport Station,This Route Travels Eastbound & Westbound,2,https://app.rtd-denver.com/nextride/route/A,57C1E9,FFFFFF
+AB1,RTD,AB1,Boulder / Denver Airport,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/AB1,57C1E9,FFFFFF
+AB2,RTD,AB2,Boulder / Denver Airport,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/AB2,57C1E9,FFFFFF
+AB3,RTD,AB3,Boulder / Denver Airport,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/AB3,57C1E9,FFFFFF
+AL,RTD,AL,Longmont / Denver Airport,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/AL,57C1E9,FFFFFF
+ART,RTD,ART,Art District Connector,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/ART,0076CE,FFFFFF
+AT,RTD,AT,Arapahoe County / Denver Airport,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/AT,57C1E9,FFFFFF
+ATA,RTD,ATA,Arapahoe County / Denver Airport,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/ATA,57C1E9,FFFFFF
+BOLT,RTD,BOLT,Boulder / Longmont,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/BOLT,64A70B,FFFFFF
+BOND,RTD,Bound,30th Street,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/BOUND,0076CE,FFFFFF
+CV,RTD,CV,Pine Junction / Conifer / Denver,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/CV,64A70B,FFFFFF
+DASH,RTD,DASH,Boulder / Lafayette via Louisville,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/DASH,0076CE,FFFFFF
+EV,RTD,EV,Evergreen / Denver,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/EV,64A70B,FFFFFF
+FF1,RTD,FF1,Flatiron Flyer,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/FF1,1E4286,FFFFFF
+FF2,RTD,FF2,Flatiron Flyer,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/FF2,1E4286,FFFFFF
+FF3,RTD,FF3,Flatiron Flyer,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/FF3,1E4286,FFFFFF
+FF4,RTD,FF4,Flatiron Flyer,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/FF4,1E4286,FFFFFF
+FF5,RTD,FF5,Flatiron Flyer,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/FF5,1E4286,FFFFFF
+FMR,RTD,MetroRide,Free MetroRide,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/METRORIDE,00A19B,FFFFFF
+FREE,RTD,FreeRide,16th Street FreeRide,This Route Travels Civic Ctr & Union Stn,3,https://app.rtd-denver.com/nextride/route/FREERIDE,675DC6,FFFFFF
+GS,RTD,GS,Golden / Boulder,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/GS,64A70B,FFFFFF
+JUMP,RTD,JUMP,Boulder / Lafayette/ Erie,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/JUMP,0076CE,FFFFFF
+LD1,RTD,LD1,Longmont / Denver,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/LD1,64A70B,FFFFFF
+LX2,RTD,LX2,Longmont I-25 Express,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/LX2,64A70B,FFFFFF
+NB1,RTD,NB1,Boulder/ Nederland/ Eldora,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/NB1,64A70B,FFFFFF
+NB2,RTD,NB2,Boulder/ Nederland/ Eldora,This Route Travels Eastbound & Westbound,3,https://app.rtd-denver.com/nextride/route/NB2,64A70B,FFFFFF
+PD,RTD,PD,Parker / Denver,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/PD,64A70B,FFFFFF
+RX,RTD,RX,Brighton / Denver Express,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/RX,64A70B,FFFFFF
+SKIP,RTD,SKIP,Broadway,This Route Travels Northbound & Southbound,3,https://app.rtd-denver.com/nextride/route/SKIP,0076CE,FFFFFF

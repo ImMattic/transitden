@@ -10,12 +10,25 @@ from typing import Any
 from google.transit import gtfs_realtime_pb2
 
 
+# Sub-feeds of gtfs-static/ to merge, in order.  Everything that reads the
+# static schedule iterates this list, so it is the one place the layout is
+# decided.
+#
+# This used to be RTD's five per-service-type exports (light_rail, op_motorbus,
+# pur_motorbus, op_commuter_rail, pur_commuter_rail).  Those are published from
+# a separate, less-maintained pipeline and on 2026-09-27 two of the five shipped
+# internally inconsistent: light_rail's stop_times.txt was header-only, and
+# op_motorbus's carried the *previous* pick's trip_ids against the new
+# trips.txt — 0 of 10686 trips had stop times.  A feed can pass every date check
+# and still be useless, which is why refresh_gtfs.py now validates consistency
+# and gtfs_health.py watches the live match rate.
+#
+# RTD's consolidated google_transit.zip is the canonical publication (the one
+# handed to Google), it is rebuilt more often, and it covers every route that
+# appears in GTFS-RT.  The only thing it omits is FlexRide zone routes (*FX),
+# which are demand-responsive and never show up in the realtime vehicle feed.
 TRANSIT_FOLDERS = [
-    "light_rail",
-    "op_commuter_rail",
-    "op_motorbus",
-    "pur_commuter_rail",
-    "pur_motorbus",
+    "combined",
 ]
 
 VEHICLE_TYPE_MAP = {

@@ -1,2 +1,0 @@
-"route_id","agency_id","route_short_name","route_long_name","route_desc","route_type","route_url","route_color","route_text_color"
-"117N","RTD","N","Union Station to Eastlake & 124th Station","This Route Travels Northbound & Southbound","2","http://www.rtd-denver.com/Schedules.shtml","9F26B5","FFFFFF"
