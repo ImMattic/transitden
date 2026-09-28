@@ -1,0 +1,88 @@
+name: Refresh RTD GTFS static feeds
+
+# RTD rolls a new service pick roughly quarterly.  When it lands, every trip_id
+# in the realtime feed changes at once, and a stale gtfs-static/ makes the
+# schedule-derived half of the site go quietly dark -- on-time rates, the stop
+# timeline, and the Trip Explorer, which lists a trip only once it has arrival
+# events.  Nothing about ingestion or the live map looks wrong while it happens.
+#
+# scripts/refresh_gtfs.py explains why this can't just overwrite the feed the
+# moment RTD publishes: picks don't overlap, so an early install is worse than a
+# late one.  It stages, then promotes on the start date.
+#
+# Delivery from here is already automatic: the VMs' *-update.sh cron reconciles
+# the checkout every minute and force-recreates the backend whenever
+# gtfs-static/ moves (the feeds are bind-mounted, and the backend caches the
+# parsed CSVs for the life of the process, so a restart is what loads them).
+
+on:
+  schedule:
+    # 10:20 UTC = 04:20 MDT / 03:20 MST -- after RTD's service day rolls (~3am),
+    # so a promotion never cuts off the tail of the outgoing day.
+    - cron: "20 10 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Install what RTD serves now, ignoring feed_start_date"
+        type: boolean
+        default: false
+
+# Commits land on the branches the VMs track: staging -> staging VM,
+# main -> prod VM (see scripts/staging-update.sh and scripts/prod-update.sh).
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      # Sequential: both branches get the same feed, and a shared failure is
+      # easier to read when the second job hasn't also half-run.
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        branch: [staging, main]
+
+    steps:
+      - name: Checkout ${{ matrix.branch }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+
+      - name: Refresh feeds
+        id: refresh
+        run: python3 scripts/refresh_gtfs.py ${{ inputs.force && '--force' || '' }}
+
+      - name: Commit and push
+        if: steps.refresh.outputs.changed == 'true'
+        env:
+          SUMMARY: ${{ steps.refresh.outputs.summary }}
+          # A promotion that lands after its start date means service already
+          # ran against a schedule we didn't hold.  Those arrivals are
+          # recoverable from stored vehicle_positions, so ask the deploy script
+          # for a replay -- it greps commit messages for this tag.  An on-time
+          # promotion opens no gap and gets no tag.
+          BACKFILL: ${{ steps.refresh.outputs.backfill }}
+        run: |
+          set -eu
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gtfs-static
+          if git diff --cached --quiet; then
+            echo "Nothing staged; skipping commit."
+            exit 0
+          fi
+          TAG=""
+          if [ "$BACKFILL" = "true" ]; then TAG=" [backfill]"; fi
+          git commit -m "chore(gtfs): refresh RTD static feeds${TAG}" -m "$SUMMARY"
+          git push origin HEAD:${{ matrix.branch }}
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.branch }}"
+            echo ""
+            echo '```'
+            echo "${{ steps.refresh.outputs.summary || 'refresh step did not report' }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

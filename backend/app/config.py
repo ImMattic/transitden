@@ -202,6 +202,29 @@ class Settings(BaseSettings):
     # live ESPN data takes back over.
     sports_sim_max_minutes: int = 240
 
+    # ── Static-schedule health ───────────────────────────────────────────────
+    # RTD rolls a service pick roughly quarterly and consecutive picks share no
+    # trip_ids, so a stale gtfs-static/ silently darkens every schedule-derived
+    # surface while ingestion and the live map carry on looking fine.  The
+    # watched number is the share of realtime trip_ids that still resolve
+    # against the installed schedule -- see services/gtfs_health.py.
+    #
+    # ntfy topic URL to POST alerts to (e.g. https://ntfy.sh/your-secret-topic).
+    # Empty disables outbound alerting; /meta/feed still reports status.
+    ntfy_topic_url: str = ""
+    # Below this share of trip_ids resolving, the schedule is considered out of
+    # sync.  Healthy is ~1.0; the 2026-09-27 pick rollover sat at 0.0.  Added and
+    # modified trips legitimately miss the schedule, so this is set well clear of
+    # normal noise rather than near 1.
+    gtfs_match_rate_alert_threshold: float = 0.5
+    # Don't judge the rate until this many trip_ids have been seen, so an empty
+    # overnight poll can't raise an alert on its own.
+    gtfs_match_rate_min_samples: int = 200
+    # Warn once the earliest installed feed_end_date is this close.
+    gtfs_feed_expiry_warn_days: int = 10
+    # Minimum gap between repeats of the same alert.
+    gtfs_alert_cooldown_hours: int = 12
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     cors_origins: list[str] = ["http://localhost:3000"]
 
