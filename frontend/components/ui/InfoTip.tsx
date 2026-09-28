@@ -58,7 +58,10 @@ export default function InfoTip({ children, className, align = "left" }: InfoTip
           // MapStatusBar, StopDialog), and since nothing between this button
           // and a nearby map creates its own stacking context, a low z-index
           // here loses to the map even though we're later in the DOM.
-          "pointer-events-none absolute top-full z-[1000] mt-1.5 w-56 max-w-[calc(100vw-2rem)] rounded-md border border-line bg-card p-2 text-[11px] leading-snug text-fg-muted opacity-0 shadow-card transition-opacity duration-150",
+          // normal-case: the "?" trigger sometimes sits inside an uppercase
+          // label (e.g. KpiCard's title row), and text-transform inherits —
+          // without this the popover copy would shout right along with it.
+          "pointer-events-none absolute top-full z-[1000] mt-1.5 w-56 max-w-[calc(100vw-2rem)] rounded-md border border-line bg-card p-2 text-[11px] normal-case leading-snug text-fg-muted opacity-0 shadow-card transition-opacity duration-150",
           "group-hover/tip:pointer-events-auto group-hover/tip:opacity-100",
           open && "pointer-events-auto opacity-100",
           align === "right" ? "right-0" : "left-0",

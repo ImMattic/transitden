@@ -58,7 +58,10 @@ async def _latest_positions(
 
     stmt = (
         select(VehiclePosition)
-        .where(VehiclePosition.timestamp >= cutoff)
+        .where(
+            VehiclePosition.timestamp >= cutoff,
+            VehiclePosition.is_anomalous.is_(False),
+        )
         .order_by(veh_key_expr, VehiclePosition.timestamp.desc())
         .distinct(veh_key_expr)
     )

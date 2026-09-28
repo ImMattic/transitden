@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Float, Index, Integer, String
+from sqlalchemy import BigInteger, Boolean, Float, Index, Integer, String
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,6 +46,13 @@ class VehiclePosition(Base):
     timestamp: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False
     )
+
+    # Set by services/position_anomaly.py when this fix implied a speed no
+    # real vehicle could have covered since its last trusted one — a GPS
+    # glitch, not a genuine position. Never deleted, only flagged, so the raw
+    # feed stays available for tuning; every reader (map, trip replay, on-time
+    # detection, the occupancy cagg) filters these out.
+    is_anomalous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         Index("ix_vp_route_ts", "route_id", "timestamp"),

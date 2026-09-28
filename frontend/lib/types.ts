@@ -488,6 +488,16 @@ export interface VehiclePositionTrack {
   occupancy_status: string | null;
 }
 
+/** A silence between two consecutive fixes wide enough that RTD's feed
+ * genuinely lost the vehicle (a dead cell zone, most often) rather than it
+ * simply sitting still between polls. Position between `start` and `end` is
+ * unknown, not measured. */
+export interface SignalGap {
+  start: string;
+  end: string;
+  duration_seconds: number;
+}
+
 export interface VehicleTripResponse {
   vehicle_label: string | null;
   vehicle_id: string | null;
@@ -506,6 +516,7 @@ export interface VehicleTripResponse {
   avg_delay_seconds: number | null;
   on_time_pct: number | null;
   observation_count: number;
+  signal_gaps: SignalGap[];
 }
 
 export interface RidershipPoint {
