@@ -1,0 +1,2 @@
+feed_publisher_name,feed_publisher_url,feed_lang,feed_start_date,feed_end_date,feed_version,feed_contact_email,feed_contact_url
+RTD,https://www.rtd-denver.com,en,20260927,20270102,Sep26-37178-7-7-20260927-085140,bidevelopmentteam@rtd-denver.com,https://www.rtd-denver.com/contact-us

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.api.v1.vehicles import _DENVER, _service_day_anchor, _signal_gaps
 from app.models.stop_arrival import StopArrivalEvent
+from app.services.gtfs_decoder import TRANSIT_FOLDERS
 from app.services.gtfs_schedule import load_trip_stop_sequence
 
 _STOP_TIMES = (
@@ -36,7 +37,9 @@ _STOPS = (
 
 
 def _gtfs_root(tmp_path):
-    folder = tmp_path / "light_rail"
+    # Name the fixture folder after whatever sub-feed the app actually reads,
+    # so a change to the gtfs-static layout doesn't silently empty these tests.
+    folder = tmp_path / TRANSIT_FOLDERS[0]
     folder.mkdir()
     (folder / "stop_times.txt").write_text(_STOP_TIMES, encoding="utf-8")
     (folder / "stops.txt").write_text(_STOPS, encoding="utf-8")

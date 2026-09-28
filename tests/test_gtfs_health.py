@@ -181,7 +181,7 @@ def test_status_expired_when_the_period_has_passed(monkeypatch, tmp_path, settin
 def test_earliest_feed_end_date_governs(monkeypatch, tmp_path, settings):
     """One lapsed sub-feed darkens that mode even while the others are fine."""
     root = write_root(tmp_path, end=today() + timedelta(days=60))
-    (root / "op_motorbus" / "feed_info.txt").write_text(
+    (root / gtfs_health.TRANSIT_FOLDERS[0] / "feed_info.txt").write_text(
         '"feed_start_date","feed_end_date","feed_version"\n'
         f'"20260607","{(today() + timedelta(days=2)):%Y%m%d}","Short"\n',
         encoding="utf-8",
@@ -193,7 +193,7 @@ def test_earliest_feed_end_date_governs(monkeypatch, tmp_path, settings):
 def test_staged_next_pick_is_reported(monkeypatch, tmp_path, settings):
     """So /meta/feed can say "the next pick is parked and due on the 27th"."""
     root = write_root(tmp_path, end=today() + timedelta(days=5))
-    staged = root / "incoming" / "op_motorbus"
+    staged = root / "incoming" / gtfs_health.TRANSIT_FOLDERS[0]
     staged.mkdir(parents=True)
     (staged / "feed_info.txt").write_text(
         '"feed_start_date","feed_end_date","feed_version"\n'

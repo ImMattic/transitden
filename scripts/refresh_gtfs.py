@@ -50,14 +50,22 @@ from zoneinfo import ZoneInfo
 
 DENVER = ZoneInfo("America/Denver")
 
-# RTD publishes a separate zip per service type; gtfs-static/ mirrors that split.
+# RTD's consolidated publication -- the feed handed to Google, and the one it
+# rebuilds most often.  It replaces the five per-service-type exports this
+# project used until 2026-09-27; see TRANSIT_FOLDERS in services/gtfs_decoder.py
+# for why those had to go.  Keeping this a dict leaves the multi-feed machinery
+# intact in case a supplementary feed (FlexRide) is ever wanted back.
 FEEDS: dict[str, str] = {
-    "light_rail": "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Direct_Operated_Light_Rail_GTFS.zip",
-    "op_commuter_rail": "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Direct_Operated_Commuter_Rail_GTFS.zip",
-    "op_motorbus": "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Direct_Operated_Motorbus_GTFS.zip",
-    "pur_commuter_rail": "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Purchased_Transportation_Commuter_Rail_GTFS.zip",
-    "pur_motorbus": "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Direct_Purchased_Transportation_Motorbus_GTFS.zip",
+    "combined": "https://www.rtd-denver.com/files/gtfs/google_transit.zip",
 }
+
+# Share of trips.txt that must actually have rows in stop_times.txt for a feed
+# to be considered usable.  Not a style check: on 2026-09-27 RTD published a
+# perfectly well-dated pick whose op_motorbus stop_times.txt still held the
+# PREVIOUS pick's trip_ids (0 of 10686 trips had stop times) and whose
+# light_rail stop_times.txt was header-only.  Dates alone cannot catch that, and
+# a feed that passes every date check can still leave the site completely dark.
+MIN_TRIP_COVERAGE = 0.9
 
 # Hour (Denver) after which a pick starting today may be installed.  RTD's
 # service day rolls somewhere around 3am; before that, the outgoing pick is
@@ -153,6 +161,58 @@ def download_feed(url: str, dest: Path) -> None:
                 shutil.copyfileobj(src, out)
 
 
+def _column(path: Path, column: str) -> set[str]:
+    """Distinct values of one column, or an empty set if unreadable."""
+    if not path.exists():
+        return set()
+    values: set[str] = set()
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            for row in csv.DictReader(handle):
+                value = row.get(column)
+                if value:
+                    values.add(value)
+    except OSError:
+        return set()
+    return values
+
+
+def validate_feed(folder: Path) -> list[str]:
+    """Structural problems that would make this feed useless, or [] if sound.
+
+    Checks the one invariant that actually matters downstream: the trips the
+    realtime feed will name have to have stop times behind them, because that is
+    what on-time detection, the stop timeline and the Trip Explorer are all
+    built from.  A feed can be correctly dated, correctly versioned, and fail
+    this completely -- see MIN_TRIP_COVERAGE.
+    """
+    problems: list[str] = []
+
+    info = read_feed_info(folder)
+    if info is None:
+        return ["no readable feed_info.txt"]
+    if not info.version:
+        problems.append("feed_info.txt has no feed_version")
+
+    trips = _column(folder / "trips.txt", "trip_id")
+    if not trips:
+        problems.append("trips.txt is empty or missing")
+
+    scheduled = _column(folder / "stop_times.txt", "trip_id")
+    if not scheduled:
+        problems.append("stop_times.txt is empty or missing")
+
+    if trips and scheduled:
+        covered = len(trips & scheduled)
+        coverage = covered / len(trips)
+        if coverage < MIN_TRIP_COVERAGE:
+            problems.append(
+                f"only {covered}/{len(trips)} trips ({coverage:.1%}) have stop times"
+                f" — stop_times.txt looks like it belongs to a different pick"
+            )
+    return problems
+
+
 def install(src: Path, dest: Path) -> None:
     """Replace ``dest``'s .txt files with ``src``'s."""
     dest.mkdir(parents=True, exist_ok=True)
@@ -213,13 +273,22 @@ def refresh(
         # having a bad morning.
         staged = read_feed_info(staged_dir)
         if staged and (force or is_due(staged, now)):
-            install(staged_dir, live_dir)
-            shutil.rmtree(staged_dir, ignore_errors=True)
-            result.promoted.append(folder)
-            if staged.start is not None and staged.start < now.date():
-                result.late = True
-            result.lines.append(f"{folder}: promoted staged {_describe(staged)}")
-            live, staged = staged, None
+            problems = validate_feed(staged_dir)
+            if problems:
+                # Leave it staged and leave the live feed alone.  A broken feed
+                # installed over a working one is strictly worse than staleness.
+                result.failed.append(folder)
+                result.lines.append(
+                    f"{folder}: REFUSED staged {_describe(staged)} — {'; '.join(problems)}"
+                )
+            else:
+                install(staged_dir, live_dir)
+                shutil.rmtree(staged_dir, ignore_errors=True)
+                result.promoted.append(folder)
+                if staged.start is not None and staged.start < now.date():
+                    result.late = True
+                result.lines.append(f"{folder}: promoted staged {_describe(staged)}")
+                live, staged = staged, None
 
         if not fetch:
             if folder not in result.promoted:
@@ -252,6 +321,17 @@ def refresh(
                 if folder not in result.promoted:
                     result.unchanged.append(folder)
                     result.lines.append(f"{folder}: current {_describe(live)}")
+                continue
+
+            problems = validate_feed(fresh_dir)
+            if problems:
+                # RTD does ship broken picks -- two of the five per-service-type
+                # feeds were internally inconsistent on 2026-09-27.  Report and
+                # keep whatever is already installed.
+                result.failed.append(folder)
+                result.lines.append(
+                    f"{folder}: REFUSED {_describe(fresh)} — {'; '.join(problems)}"
+                )
                 continue
 
             if force or is_due(fresh, now):

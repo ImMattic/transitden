@@ -1,4 +1,0 @@
-"route_id","agency_id","route_short_name","route_long_name","route_desc","route_type","route_url","route_color","route_text_color"
-"113B","RTD","B","Union Station to Westminster Station","This Route Travels Eastbound & Westbound","2","http://www.rtd-denver.com/Schedules.shtml","4E9D2D","FFFFFF"
-"113G","RTD","G","Union Station to Wheat Ridge Ward Station","This Route Travels Eastbound & Westbound","2","http://www.rtd-denver.com/Schedules.shtml","F6B221","FFFFFF"
-"A","RTD","A","Union Station to Denver Airport Station","This Route Travels Eastbound & Westbound","2","http://www.rtd-denver.com/Schedules.shtml","57C1E9","FFFFFF"
