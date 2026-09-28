@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from app.api.v1.vehicles import _DENVER, _service_day_anchor
+from app.api.v1.vehicles import _DENVER, _service_day_anchor, _signal_gaps
 from app.models.stop_arrival import StopArrivalEvent
 from app.services.gtfs_schedule import load_trip_stop_sequence
 
@@ -105,3 +105,26 @@ def test_service_day_anchor_inferred_from_position_track():
 
     expected_midnight = datetime(2026, 6, 20, tzinfo=_DENVER).astimezone(timezone.utc)
     assert anchor == expected_midnight
+
+
+def test_signal_gaps_flags_wide_silences_only():
+    t0 = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    timestamps = [
+        t0,
+        t0 + timedelta(seconds=30),  # ordinary poll interval
+        t0 + timedelta(seconds=60),
+        t0 + timedelta(seconds=360),  # 5 min silence — a real gap (NB2-style)
+        t0 + timedelta(seconds=390),
+    ]
+    gaps = _signal_gaps(timestamps, threshold_seconds=300)
+    assert len(gaps) == 1
+    assert gaps[0]["start"] == timestamps[2].isoformat()
+    assert gaps[0]["end"] == timestamps[3].isoformat()
+    assert gaps[0]["duration_seconds"] == 300
+
+
+def test_signal_gaps_empty_when_no_gap_or_too_few_points():
+    t0 = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    assert _signal_gaps([], threshold_seconds=300) == []
+    assert _signal_gaps([t0], threshold_seconds=300) == []
+    assert _signal_gaps([t0, t0 + timedelta(seconds=30)], threshold_seconds=300) == []

@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -26,6 +26,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models.ridership import RidershipMonthly
 from app.schemas.analytics import (
+    BusynessResponse,
     DirectionInfo,
     DistributionBin,
     DistributionResponse,
@@ -41,8 +42,6 @@ from app.schemas.analytics import (
     RidershipRoute,
     ScheduleFrequencyResponse,
     ScheduleFrequencyRoute,
-    ServiceDeliveryResponse,
-    ServiceDeliveryRoute,
     TrendPoint,
     TrendResponse,
     WorstStop,
@@ -73,32 +72,6 @@ def _route_name(routes_static: dict[str, dict[str, Any]], rid: str) -> str:
     return routes_static.get(rid, {}).get("route_short_name", rid) or rid
 
 
-_DOW_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
-
-
-def _count_daytypes(start: datetime, end: datetime) -> dict[str, int]:
-    """Count occurrences of each day-of-week in [start, end] (inclusive of dates)."""
-    counts: dict[str, int] = {d: 0 for d in _DOW_NAMES}
-    d = start.date()
-    end_d = end.date()
-    while d <= end_d:
-        counts[_DOW_NAMES[d.weekday()]] += 1
-        d += timedelta(days=1)
-    return counts
-
-
-def _scheduled_trips(route_id: str, day_counts: dict[str, int]) -> int:
-    s = load_schedule_summary().get(route_id)
-    if not s:
-        return 0
-    tdow = s.get("trips_per_dow")
-    if tdow:
-        return sum(tdow.get(dow, 0) * cnt for dow, cnt in day_counts.items())
-    # Fallback for a cached schedule built before trips_per_dow was added.
-    wd = sum(day_counts.get(d, 0) for d in ("monday", "tuesday", "wednesday", "thursday", "friday"))
-    return s["weekday_trips"] * wd + s["saturday_trips"] * day_counts.get("saturday", 0) + s["sunday_trips"] * day_counts.get("sunday", 0)
-
-
 # ── Overview (hero KPIs) ────────────────────────────────────────────────────
 
 _OVERVIEW_ONTIME_SQL = """
@@ -111,13 +84,6 @@ _OVERVIEW_ONTIME_SQL = """
         sum(delay_sumsq)::numeric                       AS delay_sumsq,
         count(DISTINCT route_id)                        AS routes
     FROM trip_ontime_hourly
-    WHERE bucket >= :start AND bucket < :end
-      AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
-"""
-
-_OBSERVED_TRIPS_SQL = """
-    SELECT count(*)::bigint AS trips
-    FROM trip_activity_daily
     WHERE bucket >= :start AND bucket < :end
       AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
 """
@@ -176,39 +142,6 @@ async def overview(
     cur = await _ontime_totals(db, rng.start_at, rng.end_at, rids)
     prev = await _ontime_totals(db, prev_start_at, rng.start_at, rids)
 
-    observed = (await db.execute(
-        text(_OBSERVED_TRIPS_SQL).bindparams(
-            bindparam("start"), bindparam("end"),
-            bindparam("route_ids", type_=ARRAY(String)),
-        ),
-        {"start": rng.start_at, "end": rng.end_at, "route_ids": rids},
-    )).scalar() or 0
-    observed_prev = (await db.execute(
-        text(_OBSERVED_TRIPS_SQL).bindparams(
-            bindparam("start"), bindparam("end"),
-            bindparam("route_ids", type_=ARRAY(String)),
-        ),
-        {"start": prev_start_at, "end": rng.start_at, "route_ids": rids},
-    )).scalar() or 0
-
-    routes_static, _ = load_gtfs_static_data()
-    sched_route_ids = rids if rids else list(routes_static.keys())
-
-    def _sched(start_d: date, end_d: date) -> int:
-        day_counts = _count_daytypes(
-            datetime.combine(start_d, datetime.min.time()),
-            datetime.combine(end_d, datetime.min.time()),
-        )
-        return sum(_scheduled_trips(rid, day_counts) for rid in sched_route_ids)
-
-    prev_end_date = rng.start - timedelta(days=1)
-    prev_start_date = prev_end_date - timedelta(days=rng.span_days - 1)
-
-    sched = _sched(rng.start, rng.end)
-    sched_prev = _sched(prev_start_date, prev_end_date)
-    delivered = round(min(100.0, 100 * observed / sched), 1) if sched else 0.0
-    delivered_prev = round(min(100.0, 100 * observed_prev / sched_prev), 1) if sched_prev else 0.0
-
     # Latest ridership (system or the selected routes).
     rship = await _latest_ridership(db, rids)
 
@@ -219,9 +152,6 @@ async def overview(
         on_time_pct=MetricWithDelta(value=_pct_on_time(cur), previous=_pct_on_time(prev)),
         avg_delay_seconds=MetricWithDelta(value=_avg_delay(cur), previous=_avg_delay(prev)),
         delay_stddev_seconds=_stddev(cur),
-        service_delivered_pct=MetricWithDelta(value=delivered, previous=delivered_prev),
-        observed_trips=int(observed),
-        scheduled_trips=int(sched),
         routes_tracked=int(cur["routes"]),
         total_observations=int(cur["observations"]),
         latest_ridership_month=rship[0],
@@ -458,66 +388,6 @@ async def worst_stops(
     )
 
 
-# ── Service delivery (operated vs scheduled) ────────────────────────────────
-
-@router.get("/service-delivery", response_model=ServiceDeliveryResponse)
-async def service_delivery(
-    db: Annotated[AsyncSession, Depends(get_db)],
-    route_id: Annotated[str | None, Query()] = None,
-    route_ids: Annotated[str | None, Query()] = None,
-    modes: Annotated[str | None, Query()] = None,
-    start: Annotated[date | None, Query()] = None,
-    end: Annotated[date | None, Query()] = None,
-) -> ServiceDeliveryResponse:
-    rids = resolve_route_ids(route_id, route_ids, modes)
-    settings = get_settings()
-    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=7)
-
-    sql = """
-        SELECT route_id, count(*)::bigint AS trips
-        FROM trip_activity_daily
-        WHERE bucket >= :start AND bucket < :end
-          AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
-        GROUP BY route_id
-    """
-    rows = (await db.execute(
-        text(sql).bindparams(
-            bindparam("start"), bindparam("end"), bindparam("route_ids", type_=ARRAY(String)),
-        ),
-        {"start": rng.start_at, "end": rng.end_at, "route_ids": rids},
-    )).all()
-
-    routes_static, _ = load_gtfs_static_data()
-    day_counts = _count_daytypes(
-        datetime.combine(rng.start, datetime.min.time()),
-        datetime.combine(rng.end, datetime.min.time()),
-    )
-
-    results: list[ServiceDeliveryRoute] = []
-    total_observed = 0
-    total_scheduled = 0
-    for rid, observed in rows:
-        scheduled = _scheduled_trips(rid, day_counts)
-        total_observed += int(observed)
-        total_scheduled += scheduled
-        results.append(ServiceDeliveryRoute(
-            route_id=rid,
-            route_short_name=_route_name(routes_static, rid),
-            observed_trips=int(observed),
-            scheduled_trips=scheduled,
-            delivered_pct=round(min(100.0, 100 * observed / scheduled), 1) if scheduled else 0.0,
-        ))
-    results.sort(key=lambda r: r.delivered_pct)
-    return ServiceDeliveryResponse(
-        period_days=rng.span_days,
-        range_start=rng.start.isoformat(), range_end=rng.end.isoformat(),
-        observed_trips=total_observed,
-        scheduled_trips=total_scheduled,
-        delivered_pct=round(min(100.0, 100 * total_observed / total_scheduled), 1) if total_scheduled else 0.0,
-        routes=results,
-    )
-
-
 # ── Scheduled frequency (static) ────────────────────────────────────────────
 
 @router.get("/frequency/schedule", response_model=ScheduleFrequencyResponse)
@@ -749,6 +619,118 @@ async def _build_occupancy(
         standing_pct=standing_pct,
         by_hour=by_hour,
         directions=directions,
+    )
+
+
+# ── Busyness (crowding peaks) ────────────────────────────────────────────────
+#
+# Reuses occupancy_status_hourly (see above) but answers a different question
+# than /occupancy's chart: not "how crowded is the system generally" but
+# "where/when was it worst" — the busiest hour-of-day, the busiest calendar
+# day (only meaningful once the window spans more than one), and the busiest
+# route, each an independent argmax over the same crowding-% definition
+# /occupancy uses (share of known-occupancy samples in standing/crushed/full/
+# not_accepting). A route or window with zero reported occupancy (e.g.
+# filtered to rail, which doesn't report GTFS-RT occupancy) comes back with
+# reported=False, mirroring OccupancyResponse.
+
+_BUSY_CATEGORY_SELECT = """
+        sum(empty)::bigint         AS empty,
+        sum(many_seats)::bigint    AS many_seats,
+        sum(few_seats)::bigint     AS few_seats,
+        sum(standing)::bigint      AS standing,
+        sum(crushed)::bigint       AS crushed,
+        sum("full")::bigint        AS full,
+        sum(not_accepting)::bigint AS not_accepting
+"""
+
+_BUSY_ROUTE_SQL = f"""
+    SELECT route_id, {_BUSY_CATEGORY_SELECT}
+    FROM occupancy_status_hourly
+    WHERE bucket >= :start AND bucket < :end
+      AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
+    GROUP BY route_id
+"""
+
+_BUSY_HOUR_SQL = f"""
+    SELECT EXTRACT(hour FROM bucket AT TIME ZONE '{_TZ}')::int AS key, {_BUSY_CATEGORY_SELECT}
+    FROM occupancy_status_hourly
+    WHERE bucket >= :start AND bucket < :end
+      AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
+    GROUP BY 1
+"""
+
+_BUSY_DAY_SQL = f"""
+    SELECT (bucket AT TIME ZONE '{_TZ}')::date AS key, {_BUSY_CATEGORY_SELECT}
+    FROM occupancy_status_hourly
+    WHERE bucket >= :start AND bucket < :end
+      AND (:route_ids IS NULL OR route_id = ANY(:route_ids))
+    GROUP BY 1
+"""
+
+
+def _crowding(row: Any) -> tuple[Any, int, float | None]:
+    """(key, known_samples, crowding_pct) for one grouped busyness row."""
+    key, empty, many, few, standing, crushed, full, not_accepting = row
+    known = int(empty or 0) + int(many or 0) + int(few or 0) + int(standing or 0) + int(crushed or 0) + int(full or 0) + int(not_accepting or 0)
+    high = int(standing or 0) + int(crushed or 0) + int(full or 0) + int(not_accepting or 0)
+    return key, known, (round(100 * high / known, 1) if known else None)
+
+
+def _busiest(rows: list[Any]) -> tuple[Any, float | None]:
+    """The (key, crowding_pct) of the row with the highest crowding %, or (None, None)."""
+    best_key: Any = None
+    best_pct = -1.0
+    for row in rows:
+        key, known, pct = _crowding(row)
+        if known and pct is not None and pct > best_pct:
+            best_key, best_pct = key, pct
+    return (best_key, best_pct) if best_key is not None else (None, None)
+
+
+@router.get("/busyness", response_model=BusynessResponse)
+async def busyness(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    route_id: Annotated[str | None, Query()] = None,
+    route_ids: Annotated[str | None, Query()] = None,
+    modes: Annotated[str | None, Query()] = None,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
+) -> BusynessResponse:
+    rids = resolve_route_ids(route_id, route_ids, modes)
+    settings = get_settings()
+    rng = resolve_range(start, end, max_span_days=settings.dashboard_max_span_days, default_days=7)
+    granularity = "hour" if rng.span_days <= 1 else "day"
+
+    bind = (bindparam("start"), bindparam("end"), bindparam("route_ids", type_=ARRAY(String)))
+    params = {"start": rng.start_at, "end": rng.end_at, "route_ids": rids}
+
+    route_rows = (await db.execute(text(_BUSY_ROUTE_SQL).bindparams(*bind), params)).all()
+    hour_rows = (await db.execute(text(_BUSY_HOUR_SQL).bindparams(*bind), params)).all()
+    day_rows = (
+        (await db.execute(text(_BUSY_DAY_SQL).bindparams(*bind), params)).all()
+        if granularity == "day" else []
+    )
+
+    reported = any(_crowding(row)[1] for row in route_rows)
+    busiest_hour, busiest_hour_pct = _busiest(hour_rows)
+    busiest_day, busiest_day_pct = _busiest(day_rows)
+    busiest_route_id, busiest_route_pct = _busiest(route_rows)
+
+    routes_static, _ = load_gtfs_static_data()
+
+    return BusynessResponse(
+        period_days=rng.span_days,
+        range_start=rng.start.isoformat(), range_end=rng.end.isoformat(),
+        reported=reported,
+        granularity=granularity,
+        busiest_hour=int(busiest_hour) if busiest_hour is not None else None,
+        busiest_hour_pct=busiest_hour_pct,
+        busiest_day=busiest_day.isoformat() if busiest_day is not None else None,
+        busiest_day_pct=busiest_day_pct,
+        busiest_route_id=busiest_route_id,
+        busiest_route_name=_route_name(routes_static, busiest_route_id) if busiest_route_id else None,
+        busiest_route_pct=busiest_route_pct,
     )
 
 

@@ -94,21 +94,6 @@ async def test_worst_stops(client, db_session):
     assert s["on_time_pct"] == pytest.approx(50.0)
 
 
-# ── /stats/service-delivery ─────────────────────────────────────────────────
-
-async def test_service_delivery(client, db_session):
-    rows = [("R1", 90)]  # observed trip-days
-    sched = {"R1": {"weekday_trips": 10, "saturday_trips": 0, "sunday_trips": 0}}
-    with patch.object(db_session, "execute", AsyncMock(return_value=_result(all_=rows))), \
-         patch("app.api.v1.analytics.load_schedule_summary", return_value=sched):
-        resp = await client.get("/api/v1/stats/service-delivery")
-    data = resp.json()
-    assert data["observed_trips"] == 90
-    assert data["scheduled_trips"] > 0
-    assert len(data["routes"]) == 1
-    assert data["routes"][0]["route_id"] == "R1"
-
-
 # ── /stats/frequency/schedule ───────────────────────────────────────────────
 
 async def test_schedule_frequency_for_route(client):
@@ -155,6 +140,50 @@ async def test_occupancy_not_reported(client, db_session):
     assert resp.json()["reported"] is False
 
 
+# ── /stats/busyness ──────────────────────────────────────────────────────────
+
+async def test_busyness_single_day_uses_hour_granularity(client, db_session):
+    # (route_id/hour, empty, many_seats, few_seats, standing, crushed, full, not_accepting)
+    route_rows = [("R1", 10, 10, 10, 30, 5, 5, 0)]  # known=70, high=40 → 57.1%
+    hour_rows = [(17, 10, 10, 10, 30, 5, 5, 0)]
+    with patch.object(db_session, "execute", _execute(
+        _result(all_=route_rows), _result(all_=hour_rows),
+    )):
+        resp = await client.get("/api/v1/stats/busyness?start=2026-06-01&end=2026-06-01")
+    data = resp.json()
+    assert data["granularity"] == "hour"
+    assert data["reported"] is True
+    assert data["busiest_hour"] == 17
+    assert data["busiest_hour_pct"] == pytest.approx(57.1)
+    assert data["busiest_route_id"] == "R1"
+    assert data["busiest_day"] is None
+
+
+async def test_busyness_multi_day_uses_day_granularity(client, db_session):
+    route_rows = [("R1", 10, 10, 10, 30, 5, 5, 0), ("R2", 50, 50, 0, 0, 0, 0, 0)]
+    hour_rows = [(17, 10, 10, 10, 30, 5, 5, 0)]
+    day_rows = [(date(2026, 6, 3), 10, 10, 10, 30, 5, 5, 0)]
+    with patch.object(db_session, "execute", _execute(
+        _result(all_=route_rows), _result(all_=hour_rows), _result(all_=day_rows),
+    )):
+        resp = await client.get("/api/v1/stats/busyness?start=2026-06-01&end=2026-06-07")
+    data = resp.json()
+    assert data["granularity"] == "day"
+    assert data["busiest_day"] == "2026-06-03"
+    assert data["busiest_route_id"] == "R1"  # R2 has no standing+/crushed+/full+not_accepting
+
+
+async def test_busyness_not_reported_when_no_occupancy_samples(client, db_session):
+    empty_row = ("R1", 0, 0, 0, 0, 0, 0, 0)
+    with patch.object(db_session, "execute", _execute(
+        _result(all_=[empty_row]), _result(all_=[]),
+    )):
+        resp = await client.get("/api/v1/stats/busyness?start=2026-06-01&end=2026-06-01")
+    data = resp.json()
+    assert data["reported"] is False
+    assert data["busiest_route_id"] is None
+
+
 # ── /stats/overview ─────────────────────────────────────────────────────────
 
 async def test_overview(client, db_session):
@@ -165,8 +194,6 @@ async def test_overview(client, db_session):
     with patch.object(db_session, "execute", _execute(
         _result(one=cur),
         _result(one=prev),
-        _result(scalar=500),
-        _result(scalar=480),
         _result(all_=[]),  # no ridership imported
     )):
         resp = await client.get("/api/v1/stats/overview")
@@ -174,7 +201,6 @@ async def test_overview(client, db_session):
     assert data["on_time_pct"]["value"] == pytest.approx(80.0)
     assert data["on_time_pct"]["previous"] == pytest.approx(70.0)
     assert data["routes_tracked"] == 12
-    assert data["observed_trips"] == 500
     assert data["latest_ridership_total"] is None
 
 
@@ -186,8 +212,6 @@ async def test_overview_accepts_multi_route_and_mode_params(client, db_session):
     with patch.object(db_session, "execute", _execute(
         _result(one=cur),
         _result(one=prev),
-        _result(scalar=500),
-        _result(scalar=480),
         _result(all_=[]),
     )):
         resp = await client.get(
@@ -213,7 +237,6 @@ async def test_overview_accepts_explicit_start_end_up_to_a_year(client, db_sessi
     prev = (700, 250, 50, 1000, 90000, 12_000_000, 11)
     with patch.object(db_session, "execute", _execute(
         _result(one=cur), _result(one=prev),
-        _result(scalar=500), _result(scalar=480),
         _result(all_=[]),
     )):
         resp = await client.get(

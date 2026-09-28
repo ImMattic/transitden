@@ -151,6 +151,32 @@ class Settings(BaseSettings):
     # gets an arrival it hasn't made yet; this matches the origin's own window.
     arrival_terminus_fallback_stale_minutes: int = 15
 
+    # ── Position anomaly filtering (services/position_anomaly.py) ────────────
+    # RTD's feed occasionally reports a vehicle somewhere it could not
+    # plausibly have reached since its last fix, then a poll or two later
+    # reports it right back — a GPS glitch, not a real move. A fix implying a
+    # speed above this ceiling is held rather than trusted immediately; deeply
+    # generous so a real highway leg (FF1 on I-25) never trips it.
+    # 40 m/s ≈ 89 mph.
+    position_max_speed_mps: float = 40.0
+    # Rail can legitimately run faster (commuter rail tops out near 79 mph in
+    # the open) — 55 m/s ≈ 123 mph.
+    position_max_speed_rail_mps: float = 55.0
+    # How long a held (suspect) fix waits for the vehicle's next report to
+    # confirm or deny the jump before it's released untouched. Long enough to
+    # span a couple of missed polls; short enough that a genuinely gone-quiet
+    # vehicle doesn't sit flagged-pending for the rest of its run.
+    position_anomaly_hold_seconds: int = 180
+
+    # ── Trip page: signal-gap detection ───────────────────────────────────────
+    # A silence this long between two consecutive (non-anomalous) fixes for the
+    # same trip is surfaced on the trip page as a signal gap rather than
+    # silently interpolated — deliberately the same default as
+    # arrival_segment_max_gap_seconds, since that's exactly the point past
+    # which on-time detection itself stops trusting a straight-line
+    # interpolation between the two fixes.
+    trip_signal_gap_seconds: int = 300
+
     # ── Denver home games (ESPN scoreboard) ──────────────────────────────────
     # Powers the map status carousel's game slides.  Home games only: an away
     # game doesn't move Denver ridership, so it never earns a turn.

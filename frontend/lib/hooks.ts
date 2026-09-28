@@ -17,13 +17,14 @@ import {
   fetchHeatmap,
   fetchDistribution,
   fetchWorstStops,
-  fetchServiceDelivery,
+  fetchBusyness,
   fetchScheduleFrequency,
   fetchOccupancy,
   fetchRidership,
   fetchActiveVehicles,
   fetchVehicleTrip,
   fetchLimits,
+  fetchStorage,
   fetchGames,
   fetchSportsTeams,
   type HistoricalParams,
@@ -49,6 +50,22 @@ export function useLimits() {
     queryKey: ["limits"],
     queryFn: fetchLimits,
     staleTime: Infinity,
+    retry: 1,
+  });
+}
+
+/**
+ * The packed/loose chunk boundary backing the Trip Explorer's "why does this
+ * take longer" disclosure. Unlike the limits (fixed for the life of a deploy),
+ * this shifts by roughly a day's worth of chunks as the compression policy
+ * runs, so it's revalidated on the same cadence as the analytics rollups
+ * rather than cached forever.
+ */
+export function useStorage() {
+  return useQuery({
+    queryKey: ["storage"],
+    queryFn: fetchStorage,
+    staleTime: ANALYTICS_INTERVAL,
     retry: 1,
   });
 }
@@ -152,10 +169,10 @@ export function useWorstStops(range: DashboardRange, scope?: RouteScope, limit =
   });
 }
 
-export function useServiceDelivery(range: DashboardRange, scope?: RouteScope) {
+export function useBusyness(range: DashboardRange, scope?: RouteScope) {
   return useQuery({
-    queryKey: ["serviceDelivery", range, scope],
-    queryFn: () => fetchServiceDelivery(range, scope),
+    queryKey: ["busyness", range, scope],
+    queryFn: () => fetchBusyness(range, scope),
     refetchInterval: ANALYTICS_INTERVAL,
     staleTime: ANALYTICS_INTERVAL,
   });

@@ -23,10 +23,15 @@ from app.services.gtfs_decoder import (
 )
 from app.services.gtfs_rt_fetcher import fetch_pb
 from app.services.ontime import detect_arrivals
+from app.services.position_anomaly import PositionAnomalyFilter, filter_batch
 
 logger = logging.getLogger(__name__)
 
 _settings = get_settings()
+
+# One instance for the life of the process, so a suspect jump held on one poll
+# can be resolved by the vehicle's fix on the next — see position_anomaly.py.
+_anomaly_filter = PositionAnomalyFilter()
 
 
 def _resolve_gtfs_static_root() -> Path:
@@ -129,8 +134,14 @@ async def ingest_cycle() -> None:
     arrival_events: list[dict] = []
     if vp_rows:
         vp_rows = _dedupe_vehicle_rows(vp_rows)
+        # Gate out implausible GPS jumps before anything else sees this batch:
+        # a flagged fix still gets written below (see position_anomaly.py) but
+        # must never feed on-time detection, or a single bad fix can record a
+        # wrong departure/arrival before the bounce-back is seen.
+        vp_rows = filter_batch(_anomaly_filter, vp_rows, now)
+        clean_rows = [r for r in vp_rows if not r.get("is_anomalous")]
         try:
-            arrival_events = detect_arrivals(vp_rows, now)
+            arrival_events = detect_arrivals(clean_rows, now)
         except Exception:
             logger.exception("Failed to derive on-time arrival events")
 

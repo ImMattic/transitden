@@ -45,6 +45,18 @@ async def test_returns_inserted_row(client, db_session):
     assert data["vehicles"][0]["route_id"] == "R1"
 
 
+async def test_anomalous_rows_excluded(client, db_session):
+    db_session.add(make_vehicle(id=1, is_anomalous=False))
+    db_session.add(make_vehicle(id=2, vehicle_id="V2", is_anomalous=True))
+    await db_session.flush()
+
+    resp = await client.get("/api/v1/historical/vehicles")
+    data = resp.json()
+    assert data["returned"] == 1
+    assert data["total"] == 1
+    assert data["vehicles"][0]["vehicle_id"] == "V1"
+
+
 async def test_pagination_limit(client, db_session):
     for i in range(10):
         db_session.add(make_vehicle(id=i + 1, vehicle_id=f"V{i}"))

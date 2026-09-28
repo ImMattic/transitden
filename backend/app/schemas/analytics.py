@@ -18,9 +18,6 @@ class OverviewResponse(BaseModel):
     on_time_pct: MetricWithDelta
     avg_delay_seconds: MetricWithDelta
     delay_stddev_seconds: float
-    service_delivered_pct: MetricWithDelta
-    observed_trips: int
-    scheduled_trips: int
     routes_tracked: int
     total_observations: int
     latest_ridership_month: str | None = None
@@ -103,26 +100,6 @@ class WorstStopsResponse(BaseModel):
     stops: list[WorstStop]
 
 
-# ── Service delivery ────────────────────────────────────────────────────────
-
-class ServiceDeliveryRoute(BaseModel):
-    route_id: str
-    route_short_name: str
-    observed_trips: int
-    scheduled_trips: int
-    delivered_pct: float
-
-
-class ServiceDeliveryResponse(BaseModel):
-    period_days: int
-    range_start: str | None = None
-    range_end: str | None = None
-    observed_trips: int
-    scheduled_trips: int
-    delivered_pct: float
-    routes: list[ServiceDeliveryRoute]
-
-
 # ── Scheduled frequency ─────────────────────────────────────────────────────
 
 class HourHeadway(BaseModel):
@@ -191,6 +168,23 @@ class OccupancyResponse(BaseModel):
     standing_pct: float | None = None
     by_hour: list[OccupancyHourPoint] = []
     directions: list[DirectionInfo] = []
+
+
+# ── Busyness (crowding peaks) ────────────────────────────────────────────────
+
+class BusynessResponse(BaseModel):
+    period_days: int
+    range_start: str | None = None
+    range_end: str | None = None
+    reported: bool                       # False when no occupancy data in scope (e.g. rail-only)
+    granularity: str                     # "hour" for a ≤1-day window, "day" otherwise
+    busiest_hour: int | None = None      # local hour-of-day (0-23) with the highest crowding %
+    busiest_hour_pct: float | None = None
+    busiest_day: str | None = None       # ISO date; only set when granularity == "day"
+    busiest_day_pct: float | None = None
+    busiest_route_id: str | None = None
+    busiest_route_name: str | None = None
+    busiest_route_pct: float | None = None
 
 
 # ── Ridership ───────────────────────────────────────────────────────────────

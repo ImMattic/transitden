@@ -41,7 +41,7 @@ download_feed() {
     rm -f "$dest"/*.txt
     find "$extract_dir" -name "*.txt" -exec cp {} "$dest/" \;
 
-    feed_end=$(grep -m1 "feed_end_date" "$dest/feed_info.txt" 2>/dev/null | tr -d '"' | awk -F',' '{print $NF}' || echo "unknown")
+    feed_end=$(sed -n '2p' "$dest/feed_info.txt" 2>/dev/null | tr -d '"' | awk -F',' '{print $5}' || echo "unknown")
     trip_count=$(( $(wc -l < "$dest/trips.txt") - 1 ))
     echo "    feed_end_date=$feed_end  trips=$trip_count"
     echo ""
@@ -50,7 +50,7 @@ download_feed() {
 download_feed light_rail        "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Direct_Operated_Light_Rail_GTFS.zip"
 download_feed op_commuter_rail  "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Direct_Operated_Commuter_Rail_GTFS.zip"
 download_feed op_motorbus       "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Direct_Operated_Motorbus_GTFS.zip"
-download_feed pur_commuter_rail "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Direct_Operated_Commuter_Rail_GTFS.zip"
+download_feed pur_commuter_rail "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Purchased_Transportation_Commuter_Rail_GTFS.zip"
 download_feed pur_motorbus      "https://www.rtd-denver.com/files/gtfs/RTD_Denver_Direct_Purchased_Transportation_Motorbus_GTFS.zip"
 
 echo "All feeds updated."

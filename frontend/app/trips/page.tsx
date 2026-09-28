@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useActiveVehicles, useLimits, useRoutes, useVehicles } from "@/lib/hooks";
+import { useActiveVehicles, useLimits, useRoutes, useStorage, useVehicles } from "@/lib/hooks";
 import { ApiError } from "@/lib/api";
 import { Card, SectionHeading } from "@/components/ui/Card";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
@@ -232,6 +232,12 @@ function TripsContent() {
     [limitsQuery.data],
   );
 
+  // Backs the picker's "why does this take longer" notice (see
+  // lib/storageTier.ts). Undefined while loading, null once known
+  // unavailable — the picker treats both the same way: say nothing.
+  const storageQuery = useStorage();
+  const looseSince = storageQuery.data?.vehicle_positions.loose_since;
+
   // "Now" is the upper bound of every field, so keep it fresh — but on a minute
   // tick, not per render, or the bounds would churn on every keystroke elsewhere.
   const [now, setNow] = useState(() => new Date());
@@ -432,6 +438,12 @@ function TripsContent() {
               : windowTotal > matched
                 ? `${matched} of ${windowTotal} trips`
                 : `${matched} trips`}
+            {/* Measured, not predicted — see query_ms on the response. Held
+                over from the last completed fetch while a new one is in
+                flight, same as the count beside it. */}
+            {!isLoading && typeof data?.query_ms === "number" && (
+              <span className="text-fg-subtle/70"> · loaded in {(data.query_ms / 1000).toFixed(1)}s</span>
+            )}
           </p>
         </div>
         <ExportButton routeId={exportRouteId} start={fetchStart} end={fetchEnd} />
@@ -451,6 +463,7 @@ function TripsContent() {
             onChange={handleRangeChange}
             limits={limits}
             now={now}
+            looseSince={looseSince}
           />
 
           {/* Grouped so the filter button and Load trips move to their own

@@ -1,2 +1,2 @@
 "feed_publisher_name","feed_publisher_url","feed_lang","feed_start_date","feed_end_date","feed_version"
-"RTD","http://rtd-denver.com","en","20260607","20260926","Jun26-36659-6-10-20260521-113848"
+"RTD","http://rtd-denver.com","en","20260927","20270102","Sep26-37040-4-3-20260922-172143"

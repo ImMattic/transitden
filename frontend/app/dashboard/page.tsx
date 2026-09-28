@@ -11,7 +11,7 @@ import {
   useFrequency,
   useScheduleFrequency,
   useOccupancy,
-  useServiceDelivery,
+  useBusyness,
   useRoutes,
   useLimits,
 } from "@/lib/hooks";
@@ -39,7 +39,6 @@ import { ActiveFilterChip } from "@/components/ui/FilterControls";
 import { Card, SectionHeading } from "@/components/ui/Card";
 import KpiCard from "@/components/dashboard/KpiCard";
 import FrequencyTable from "@/components/dashboard/FrequencyTable";
-import ServiceDeliveryChart from "@/components/charts/ServiceDeliveryChart";
 import TrendChart from "@/components/charts/TrendChart";
 import Heatmap from "@/components/charts/Heatmap";
 import type { HeatmapCell } from "@/lib/types";
@@ -49,7 +48,7 @@ import HeadwayChart from "@/components/charts/HeadwayChart";
 import OccupancyChart from "@/components/charts/OccupancyChart";
 import WorstStopsTable from "@/components/charts/WorstStopsTable";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import { deliveredColor, formatDelayMin, formatNumber, onTimeColor } from "@/lib/utils";
+import { crowdingColor, DOW_LABELS, formatDelayMin, formatHour, onTimeColor } from "@/lib/utils";
 import { useTheme } from "@/lib/useTheme";
 
 function fmtSpan(hhmm: string | null | undefined): string {
@@ -62,9 +61,9 @@ function fmtSpan(hhmm: string | null | undefined): string {
   return `${h12}:${m}${suffix}`;
 }
 
-function delta(m?: { value: number; previous: number | null }): number | null {
-  if (!m || m.previous === null || m.previous === undefined) return null;
-  return m.value - m.previous;
+/** ISO date (YYYY-MM-DD) → "Fri", for the busiest-day KPI value. */
+function dowLabel(iso: string): string {
+  return DOW_LABELS[new Date(`${iso}T00:00:00`).getDay()];
 }
 
 // Quick day-count buttons, kept alongside the calendar-icon picker for
@@ -141,7 +140,7 @@ export default function DashboardPage() {
   const singleRouteId = effectiveRouteIds.length === 1 ? effectiveRouteIds[0] : undefined;
 
   const overview = useOverview(range, scope);
-  const serviceDelivery = useServiceDelivery(range, scope);
+  const busyness = useBusyness(range, scope);
   const trend = useOnTimeTrend(range, scope, granularity);
   const heatmap = useHeatmap(heatmapRange, scope);
   const distribution = useDistribution(range, scope);
@@ -223,6 +222,27 @@ export default function DashboardPage() {
   }
 
   const ov = overview.data;
+  const bz = busyness.data;
+  const busynessPct = bz ? (bz.granularity === "day" ? bz.busiest_day_pct : bz.busiest_hour_pct) : null;
+  const busynessValue =
+    !bz || !bz.reported
+      ? "—"
+      : bz.granularity === "day"
+        ? [bz.busiest_day ? dowLabel(bz.busiest_day) : null, bz.busiest_hour !== null ? formatHour(bz.busiest_hour) : null]
+            .filter(Boolean)
+            .join(" ")
+        : bz.busiest_hour !== null
+          ? formatHour(bz.busiest_hour)
+          : "—";
+  const busynessSubtitle =
+    !bz || !bz.reported
+      ? "No occupancy data"
+      : [
+          busynessPct !== null && busynessPct !== undefined ? `${busynessPct.toFixed(0)}% crowded` : null,
+          !singleRouteId && bz.busiest_route_name ? `Rte ${bz.busiest_route_name} busiest` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
   const scopeLabel =
     chips.length === 0
       ? "all routes"
@@ -237,7 +257,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-fg">Transit Performance Dashboard</h1>
           <p className="text-sm text-fg-subtle">
-            Reliability, frequency, service delivery &amp; demand across RTD · {scopeLabel}
+            Reliability, frequency &amp; demand across RTD · {scopeLabel}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -307,18 +327,12 @@ export default function DashboardPage() {
           lowerIsBetter
         />
         <KpiCard
-          title="Service Delivered"
-          value={ov ? `${ov.service_delivered_pct.value.toFixed(1)}%` : "—"}
-          subtitle={
-            ov
-              ? `${formatNumber(ov.observed_trips)} / ${formatNumber(ov.scheduled_trips)} trips`
-              : undefined
-          }
-          hint="Share of scheduled trips that actually ran. On-time rate only counts trips that showed up — this one catches the trips that never did, so a route can be punctual and still score badly here."
+          title="Busiest"
+          value={busynessValue}
+          subtitle={busynessSubtitle}
+          hint="Where GTFS-RT occupancy codes peak in this window: the busiest hour (or day, over a longer span) and the busiest route by crowding. Rail doesn't report occupancy, so this reads as unavailable when filtered to rail-only."
           hintAlign="right"
-          delta={delta(ov?.service_delivered_pct)}
-          deltaSuffix="pts"
-          accentColor={ov ? deliveredColor(ov.service_delivered_pct.value, resolvedTheme) : undefined}
+          accentColor={bz && bz.reported && busynessPct !== null && busynessPct !== undefined ? crowdingColor(busynessPct, resolvedTheme) : undefined}
         />
       </div>
 
@@ -370,8 +384,8 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* ── Frequency & Service Delivery ────────────────────────────── */}
-      <h2 className="pt-2 text-lg font-bold text-fg-subtle">Frequency &amp; Service Delivery</h2>
+      {/* ── Frequency ────────────────────────────────────────────────── */}
+      <h2 className="pt-2 text-lg font-bold text-fg-subtle">Frequency</h2>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
@@ -401,23 +415,6 @@ export default function DashboardPage() {
           {frequency.isLoading ? <LoadingSpinner /> : <FrequencyTable routes={frequency.data?.routes ?? []} onRowClick={handleFrequencyRowClick} />}
         </Card>
       </div>
-
-      <Card>
-        <SectionHeading
-          title="Service Delivery by Route"
-          subtitle={
-            ov
-              ? `${formatNumber(ov.observed_trips)} of ${formatNumber(ov.scheduled_trips)} scheduled trips operated`
-              : "Trips operated vs. scheduled"
-          }
-          hint="Trips the feed actually saw, against what the timetable promised. A short bar means trips went missing outright — a different failure from the late-but-present trips the on-time cards measure."
-        />
-        {serviceDelivery.isLoading ? (
-          <LoadingSpinner />
-        ) : serviceDelivery.data ? (
-          <ServiceDeliveryChart data={serviceDelivery.data} />
-        ) : null}
-      </Card>
 
       {/* ── Live Demand ─────────────────────────────────────────────── */}
       <h2 className="pt-2 text-lg font-bold text-fg-subtle">Live Demand</h2>

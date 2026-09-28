@@ -44,6 +44,17 @@ async def test_export_json_has_expected_fields(client, db_session):
         assert field in rows[0]
 
 
+async def test_export_excludes_anomalous_rows(client, db_session):
+    db_session.add(make_vehicle(id=1, is_anomalous=False))
+    db_session.add(make_vehicle(id=2, vehicle_id="V2", is_anomalous=True))
+    await db_session.flush()
+
+    resp = await client.get("/api/v1/export/vehicles")
+    rows = resp.json()
+    assert len(rows) == 1
+    assert rows[0]["vehicle_id"] == "V1"
+
+
 async def test_export_csv_has_header_row(client, db_session):
     db_session.add(make_vehicle())
     await db_session.flush()

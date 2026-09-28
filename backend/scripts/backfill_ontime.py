@@ -231,6 +231,10 @@ async def _backfill(batch_size: int) -> int:
                     _VP.bearing, _VP.current_status, _VP.current_stop_sequence,
                     _VP.timestamp, _VP.id,
                 )
+                # Flagged fixes (services/position_anomaly.py) are GPS noise,
+                # not measurements — replaying them would reintroduce exactly
+                # the bad departures/arrivals the live loop now filters out.
+                .where(_VP.is_anomalous.is_(False))
                 .order_by(_VP.timestamp, _VP.id)
                 .limit(batch_size)
             )

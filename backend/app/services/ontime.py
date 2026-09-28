@@ -166,6 +166,16 @@ def _rail_routes() -> frozenset[str]:
     return _rail_route_ids
 
 
+def is_rail_route(route_id: str | None) -> bool:
+    """Whether ``route_id`` is served by rail (GTFS route_type 0/1/2).
+
+    Public wrapper around ``_rail_routes()`` — services/position_anomaly.py
+    needs the same rail/bus split this module already derives from GTFS
+    static data, rather than a second hardcoded list.
+    """
+    return bool(route_id) and route_id in _rail_routes()
+
+
 def _radius_for(route_id: str | None) -> float:
     """Geofence radius for this route: rail gets the wider one.
 

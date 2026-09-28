@@ -60,6 +60,7 @@ async def get_historical_vehicles(
         .where(
             VehiclePosition.timestamp >= start,
             VehiclePosition.timestamp <= end,
+            VehiclePosition.is_anomalous.is_(False),
         )
         .order_by(VehiclePosition.timestamp.desc())
         .offset(offset)
@@ -108,6 +109,7 @@ async def get_historical_vehicles(
         .where(
             VehiclePosition.timestamp >= start,
             VehiclePosition.timestamp <= end,
+            VehiclePosition.is_anomalous.is_(False),
         )
         .limit(_COUNT_CAP)
     )

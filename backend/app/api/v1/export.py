@@ -62,6 +62,7 @@ async def export_vehicles(
         .where(
             VehiclePosition.timestamp >= start,
             VehiclePosition.timestamp <= end,
+            VehiclePosition.is_anomalous.is_(False),
         )
         .order_by(VehiclePosition.timestamp.asc())
         .limit(limit)

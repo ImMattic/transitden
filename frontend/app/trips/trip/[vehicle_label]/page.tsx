@@ -10,7 +10,7 @@ import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import TripPlaybackControls from "@/components/map/TripPlaybackControls";
 import TripStatusBadge from "@/components/ui/TripStatusBadge";
 import { computeTripStatus, formatDelay, formatDelayMin, isTripInProgress, routeColor } from "@/lib/utils";
-import type { VehicleStopEvent } from "@/lib/types";
+import type { SignalGap, VehicleStopEvent } from "@/lib/types";
 
 const VehicleTripMap = dynamic(() => import("@/components/map/VehicleTripMap"), {
   ssr: false,
@@ -48,6 +48,38 @@ function StatBox({ label, value, sub }: { label: string; value: string; sub?: st
 function hhmm(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatGapDuration(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+  return minutes < 1 ? `${Math.round(seconds)}s` : `${minutes} min`;
+}
+
+/**
+ * Banner for a run whose feed went silent long enough that on-time detection
+ * itself stops trusting a straight-line guess between the two fixes on
+ * either side (trip_signal_gap_seconds, mirroring arrival_segment_max_gap_seconds
+ * on the backend) — most often a cell dead zone on a remote leg (e.g. NB2).
+ * Position during the gap is unknown, not merely uncoloured.
+ */
+function SignalGapBanner({ gaps }: { gaps: SignalGap[] }) {
+  if (gaps.length === 0) return null;
+  return (
+    <div className="status-warn rounded px-4 py-3 text-sm">
+      <p className="font-medium">
+        {gaps.length === 1 ? "Signal gap detected" : `${gaps.length} signal gaps detected`}
+      </p>
+      <p className="mt-0.5 text-xs">
+        No position reported for {gaps.map((g, i) => (
+          <span key={`${g.start}-${g.end}`}>
+            {i > 0 && ", "}
+            {formatGapDuration(g.duration_seconds)} between {hhmm(g.start)} and {hhmm(g.end)}
+          </span>
+        ))}
+        {" — likely lost cell signal. The path shown between those times is a straight-line estimate, not a measurement."}
+      </p>
+    </div>
+  );
 }
 
 /** Fill colour for a solid (observed) timeline node. */
@@ -575,6 +607,8 @@ function TripDetailContent({ vehicleLabel }: { vehicleLabel: string }) {
 
       {!isLoading && !isError && data && (
         <>
+          <SignalGapBanner gaps={data.signal_gaps} />
+
           {/* Stat strip */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <StatBox

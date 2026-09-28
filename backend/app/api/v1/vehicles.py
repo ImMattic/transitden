@@ -117,6 +117,7 @@ WITH agg AS (
     FROM vehicle_positions
     WHERE timestamp >= :scan_start
       AND timestamp <= :scan_end
+      AND NOT is_anomalous
       {route_clause}
     GROUP BY vehicle_label, trip_id
     HAVING COUNT(*) >= 10
@@ -465,6 +466,10 @@ async def get_active_vehicles(
     # A window with no explicit end is anchored to "now", so it never repeats.
     ttl = _window_ttl(end, now) if end_given else 0
     key = (start, end, strict, tuple(sorted(wanted_routes)))
+    # Measured, not predicted: whatever this request actually paid — cache hit
+    # or not — is what "loaded in Xs" reports back. See lib/storageTier.ts for
+    # the separate, unmeasured "why" explanation shown alongside it.
+    _t0 = _time.monotonic()
     trips, facets = await _cached_window(
         key, ttl, lambda: _build_window(db, start, end, wanted_routes, strict)
     )
@@ -503,6 +508,7 @@ async def get_active_vehicles(
     for t in page:
         t["last_delay_seconds"] = delay_map.get(t["trip_id"] or "")
 
+    query_ms = round((_time.monotonic() - _t0) * 1000)
     return {
         "start": start.isoformat(),
         "end": end.isoformat(),
@@ -510,6 +516,7 @@ async def get_active_vehicles(
         "window_count": len(trips),
         "vehicles": page,
         "facets": facets,
+        "query_ms": query_ms,
     }
 
 
@@ -703,6 +710,30 @@ def _build_facets(trips: list[dict], *, route_scoped: bool = False) -> dict:
     }
 
 
+def _signal_gaps(timestamps: list[datetime], threshold_seconds: int) -> list[dict]:
+    """Silences between consecutive fixes wide enough that RTD's feed
+    genuinely lost the vehicle, rather than it simply sitting still between
+    ordinary ~30s polls — e.g. cell dead zones on remote legs like NB2.
+
+    ``timestamps`` must already be anomaly-filtered and time-ordered. The
+    default threshold matches ``arrival_segment_max_gap_seconds`` (see
+    services/ontime.py) deliberately: that's the same point past which
+    on-time detection itself stops trusting a straight-line interpolation
+    between two fixes, so a gap this wide is exactly the case worth telling
+    the rider about rather than silently plotting a guessed path through.
+    """
+    threshold = timedelta(seconds=threshold_seconds)
+    return [
+        {
+            "start": timestamps[i].isoformat(),
+            "end": timestamps[i + 1].isoformat(),
+            "duration_seconds": round((timestamps[i + 1] - timestamps[i]).total_seconds()),
+        }
+        for i in range(len(timestamps) - 1)
+        if timestamps[i + 1] - timestamps[i] >= threshold
+    ]
+
+
 @router.get("/{vehicle_label}/trip")
 async def get_vehicle_trip(
     vehicle_label: str,
@@ -718,6 +749,7 @@ async def get_vehicle_trip(
         VehiclePosition.vehicle_label == vehicle_label,
         VehiclePosition.timestamp >= start,
         VehiclePosition.timestamp <= end,
+        VehiclePosition.is_anomalous.is_(False),
     ]
     if trip_id:
         pos_filter.append(VehiclePosition.trip_id == trip_id)
@@ -758,6 +790,7 @@ async def get_vehicle_trip(
             "avg_delay_seconds": None,
             "on_time_pct": None,
             "observation_count": 0,
+            "signal_gaps": [],
         }
 
     last_row = pos_rows[-1]
@@ -933,6 +966,10 @@ async def get_vehicle_trip(
         if r.latitude is not None and r.longitude is not None
     ]
 
+    signal_gaps = _signal_gaps(
+        [r.timestamp for r in pos_rows], _settings.trip_signal_gap_seconds
+    )
+
     return {
         "vehicle_label": vehicle_label,
         "vehicle_id": vehicle_id,
@@ -951,6 +988,7 @@ async def get_vehicle_trip(
         "avg_delay_seconds": avg_delay,
         "on_time_pct": on_time_pct,
         "observation_count": len(pos_rows),
+        "signal_gaps": signal_gaps,
     }
 
 

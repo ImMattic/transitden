@@ -1,5 +1,6 @@
 import type {
   ActiveVehiclesResponse,
+  BusynessResponse,
   DistributionResponse,
   FrequencyResponse,
   HeatmapResponse,
@@ -15,9 +16,9 @@ import type {
   RealtimeResponse,
   RoutesResponse,
   ScheduleFrequencyResponse,
-  ServiceDeliveryResponse,
   StopInfo,
   StopsSearchResponse,
+  StorageResponse,
   TrendResponse,
   VehicleTripResponse,
   WorstStopsResponse,
@@ -56,6 +57,10 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchLimits(): Promise<LimitsResponse> {
   return apiFetch("/api/v1/meta/limits");
+}
+
+export function fetchStorage(): Promise<StorageResponse> {
+  return apiFetch("/api/v1/meta/storage");
 }
 
 // ── Realtime ───────────────────────────────────────────────────────────────
@@ -190,8 +195,8 @@ export function fetchWorstStops(range: DashboardRange, scope?: RouteScope, limit
   return apiFetch(withParams("/api/v1/stats/stops/worst", { ...rangeParams(range), limit, ...scopeParams(scope) }));
 }
 
-export function fetchServiceDelivery(range: DashboardRange, scope?: RouteScope): Promise<ServiceDeliveryResponse> {
-  return apiFetch(withParams("/api/v1/stats/service-delivery", { ...rangeParams(range), ...scopeParams(scope) }));
+export function fetchBusyness(range: DashboardRange, scope?: RouteScope): Promise<BusynessResponse> {
+  return apiFetch(withParams("/api/v1/stats/busyness", { ...rangeParams(range), ...scopeParams(scope) }));
 }
 
 export function fetchScheduleFrequency(routeId?: string): Promise<ScheduleFrequencyResponse> {
