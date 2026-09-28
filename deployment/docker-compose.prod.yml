@@ -52,6 +52,13 @@ services:
       # SPORTS_SIM_PASSWORD is deliberately absent here (unlike staging).
       # Unset means the /sim routes 404 outright — a fake game on the real
       # live map would be a lie. Do not add this var to prod's .env.
+      # ntfy topic to push static-schedule alerts to (see
+      # app/services/gtfs_health.py). Empty leaves /meta/feed reporting status
+      # with nothing pushed. RTD rolls a service pick roughly quarterly and
+      # consecutive picks share no trip_ids, so a stale gtfs-static/ takes the
+      # on-time stats, the stop timeline and the Trip Explorer dark at once
+      # while ingestion and the live map carry on looking healthy.
+      NTFY_TOPIC_URL: ${NTFY_TOPIC_URL:-}
       CORS_ORIGINS: '["https://${PROD_DOMAIN:?PROD_DOMAIN is required}"]'
     depends_on:
       db:

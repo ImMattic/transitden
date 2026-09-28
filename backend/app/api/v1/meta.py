@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
+from app.services import gtfs_health
 
 router = APIRouter(prefix="/meta", tags=["meta"])
 
@@ -33,6 +34,18 @@ async def get_limits() -> dict:
         "dashboard_max_span_days": _settings.dashboard_max_span_days,
         "data_retention_days": _settings.data_retention_days,
     }
+
+
+@router.get("/feed")
+async def get_feed_health() -> dict:
+    """Whether the installed static schedule still matches the realtime feed.
+
+    ``status`` is the field worth watching: ``mismatch`` means realtime trip_ids
+    have stopped resolving against the schedule we hold, which is what a service
+    pick rollover looks like and what takes the on-time stats, the stop timeline
+    and the Trip Explorer dark all at once.  See services/gtfs_health.py.
+    """
+    return gtfs_health.snapshot()
 
 
 # ── Storage tier ──────────────────────────────────────────────────────────

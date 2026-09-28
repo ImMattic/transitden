@@ -21,6 +21,7 @@ from app.services.gtfs_decoder import (
     extract_vehicle_positions_from_bytes,
     load_gtfs_static_data,
 )
+from app.services.gtfs_health import check_and_alert, observe_trip_ids
 from app.services.gtfs_rt_fetcher import fetch_pb
 from app.services.ontime import detect_arrivals
 from app.services.position_anomaly import PositionAnomalyFilter, filter_batch
@@ -140,6 +141,11 @@ async def ingest_cycle() -> None:
         # wrong departure/arrival before the bounce-back is seen.
         vp_rows = filter_batch(_anomaly_filter, vp_rows, now)
         clean_rows = [r for r in vp_rows if not r.get("is_anomalous")]
+        # How many of these trip_ids the static schedule still knows about.
+        # detect_arrivals is about to ask exactly this question and silently
+        # return nothing when the answer is "none of them", which is what a
+        # service-pick rollover looks like from in here — see gtfs_health.py.
+        observe_trip_ids(r.get("trip_id") for r in clean_rows)
         try:
             arrival_events = detect_arrivals(clean_rows, now)
         except Exception:
@@ -154,12 +160,15 @@ async def ingest_cycle() -> None:
             if arrival_events:
                 await session.execute(insert(StopArrivalEvent), arrival_events)
 
+    health = await check_and_alert()
+
     logger.info(
         "Ingest cycle complete: %d vehicle positions, %d trip updates, "
-        "%d on-time arrivals",
+        "%d on-time arrivals (schedule %s)",
         len(vp_rows),
         len(tu_rows),
         len(arrival_events),
+        health.get("status", "unknown"),
     )
 
 

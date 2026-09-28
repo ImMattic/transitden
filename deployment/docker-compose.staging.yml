@@ -49,6 +49,13 @@ services:
       # (its routes 404). Set it in deployment/.env to enable it on staging —
       # never on prod, where a fake Nuggets game on the live map is a lie.
       SPORTS_SIM_PASSWORD: ${SPORTS_SIM_PASSWORD:-}
+      # ntfy topic to push static-schedule alerts to (see
+      # app/services/gtfs_health.py). Empty leaves /meta/feed reporting status
+      # with nothing pushed. RTD rolls a service pick roughly quarterly and
+      # consecutive picks share no trip_ids, so a stale gtfs-static/ takes the
+      # on-time stats, the stop timeline and the Trip Explorer dark at once
+      # while ingestion and the live map carry on looking healthy.
+      NTFY_TOPIC_URL: ${NTFY_TOPIC_URL:-}
       CORS_ORIGINS: '["https://${STAGING_DOMAIN:?STAGING_DOMAIN is required}"]'
     depends_on:
       db:
