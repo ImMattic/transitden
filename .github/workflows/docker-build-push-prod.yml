@@ -34,6 +34,7 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/transitden-backend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/transitden-backend:${{ github.sha }}
+          build-args: GIT_SHA=${{ github.sha }}
           cache-from: type=gha,scope=backend-prod
           cache-to: type=gha,mode=max,scope=backend-prod
 

@@ -330,3 +330,19 @@ export function exportUrl(params: {
   if (params.limit) qs.set("limit", String(params.limit));
   return `${BASE}/api/v1/export/vehicles?${qs}`;
 }
+
+/**
+ * One trip's diagnostic bundle (backend/app/api/v1/trip_export.py): the page's
+ * timeline plus the raw rows, schedule and thresholds behind it. Takes the same
+ * params the trip page fetches with, so the file describes what's on screen.
+ */
+export function tripExportUrl(
+  vehicleLabel: string,
+  params: { trip_id?: string; start?: string; end?: string },
+): string {
+  const qs = new URLSearchParams({ vehicle_label: vehicleLabel });
+  if (params.trip_id) qs.set("trip_id", params.trip_id);
+  if (params.start) qs.set("start", params.start);
+  if (params.end) qs.set("end", params.end);
+  return `${BASE}/api/v1/export/trip?${qs}`;
+}
