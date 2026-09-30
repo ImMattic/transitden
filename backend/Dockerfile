@@ -12,6 +12,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
 
+# Commit the image was built from, reported by the trip diagnostic export
+# (app/api/v1/trip_export.py). Last, so a new sha doesn't bust the pip layer.
+ARG GIT_SHA=""
+ENV GIT_SHA=${GIT_SHA}
+
 # Run Alembic migrations then start Uvicorn.
 # --limit-concurrency turns excess concurrent requests into fast 503s instead
 # of letting them queue toward OOM on the small VM; legit concurrency is a
